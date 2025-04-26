@@ -1,0 +1,32 @@
+version: "3.5"
+
+services:
+  nas:
+    restart: unless-stopped
+    build:
+      context: .
+    volumes:
+      - .:/toto:ro
+    ports:
+      - 139:139
+      - 445:445
+      - 137:137
+      - 138:138
+      - 137:137/udp
+      - 138:138/udp
+      - 445:445/udp
+    environment:
+     TZ: Europe/Paris
+     CONFIG: >
+      {
+        "groups": [
+          { "name": "family", "id": 1100 }
+        ],
+        "users": [
+          { "name": "me", "id": "1001", "groups": ["family"], "password": "myself" },
+          { "name": "spouse", "id": "1002", "groups": ["family"], "password": "heshe" }
+        ],
+        "storages": [
+          { "name": "music", "path": "/toto", "permissions": [ { "mode": "rw", "users": ["me"], "groups": ["family"] } ] }
+        ]
+      }
