@@ -50,3 +50,9 @@ See docker-compose.yml. The config example :
 ```
 
 No Linux ACL are set. Ensure your storages root directories have the good uid/guid/ACL and your configuration is logic.
+
+## Next steps
+
+- Integrate Gallolabs app to accepts various formats
+- Also by this integration emits metrics, particulary about auth
+- 
