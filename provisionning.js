@@ -29,7 +29,7 @@ function exec(cmd, args = [], input) {
 
 ;(config.users || []).forEach(user => {
 	console.log('Creation user ' + user.name)
-	exec('adduser', ['-u', user.id, '-G', user.groups[0], user.name, '-SHD'])
+	exec('adduser', ['-u', user.id, '-G', user.groups ? user.groups[0] || 'nobody' : 'nobody', user.name, '-SHD'])
 	exec('smbpasswd', ['-s', '-a', user.name], user.password + '\n' + user.password)
 })
 
