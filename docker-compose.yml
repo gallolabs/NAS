@@ -23,7 +23,7 @@ services:
           { "name": "family", "id": 1100 }
         ],
         "users": [
-          { "name": "me", "id": "1001", "groups": ["family"], "password": "myself" },
+          { "name": "me", "id": "1001", "groups": ["family"], "password": "me" },
           { "name": "spouse", "id": "1002", "groups": ["family"], "password": "heshe" }
         ],
         "storages": [
