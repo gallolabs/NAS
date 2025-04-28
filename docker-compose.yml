@@ -19,14 +19,54 @@ services:
      TZ: Europe/Paris
      CONFIG: >
       {
-        "groups": [
-          { "name": "family", "id": 1100 }
-        ],
-        "users": [
-          { "name": "me", "id": "1001", "groups": ["family"], "password": "me" },
-          { "name": "spouse", "id": "1002", "groups": ["family"], "password": "heshe" }
-        ],
-        "storages": [
-          { "name": "music", "path": "/toto", "permissions": [ { "mode": "rw", "users": ["me"], "groups": ["family"] } ] }
-        ]
+          "groups": [
+              {
+                  "name": "family",
+                  "id": 1100
+              }
+          ],
+          "users": [
+              {
+                  "name": "me",
+                  "id": "1001",
+                  "groups": ["family"],
+                  "password": "myself"
+              },
+              {
+                  "name": "spouse",
+                  "id": "1002",
+                  "groups": ["family"],
+                  "password": "heshe"
+              },
+              {
+                  "name": "anybody",
+                  "id": "1003"
+              }
+          ],
+          "guestUser": "anybody",
+          "storages": [
+              {
+                  "name": "music",
+                  "path": "/toto",
+                  "uMasks": {
+                    "allowedForFiles": "0660",
+                    "allowedForDirs": "0770",
+                    "forcedForFiles": "0660",
+                    "forcedForDirs": "0770",
+                    "recycleDir": "0770"
+                  },
+                  "recycle": true,
+                  "permissions": [
+                      {
+                          "mode": "rw",
+                          "users": ["me"],
+                          "groups": ["family"]
+                      },
+                      {
+                          "mode": "ro",
+                          "guest": true
+                      }
+                  ]
+              }
+          ]
       }

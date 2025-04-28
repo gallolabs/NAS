@@ -8,6 +8,7 @@ writeHandler.write(`
 netbios name = ${process.env.HOSTNAME}
 server string = ${process.env.HOSTNAME}
 browse list = no
+guest account = ${config.guestUser || 'nobody'}
 
 [ipc$]
 path = "/dev/null"
@@ -29,7 +30,15 @@ function exec(cmd, args = [], input) {
 
 ;(config.users || []).forEach(user => {
 	console.log('Creation user ' + user.name)
-	exec('adduser', ['-u', user.id, '-G', user.groups ? user.groups[0] || 'nobody' : 'nobody', user.name, '-SHD'])
+	const primaryGroup = user.groups && user.groups[0] ? user.groups[0] : 'nobody'
+	const secondaryGroups = user.groups ? user.groups.slice(1) : []
+	exec('adduser', ['-u', user.id, '-g', user.groups ? user.groups[0] || 'nobody' : 'nobody', ...secondaryGroups && ['-G', secondaryGroups.join(',')], user.name, '-SHD'])
+	if (!user.password) {
+		if (user.password !== null) {
+			throw new Error('Missing password for user ' + user.name + ' or explicit null one')
+		}
+		user.password = Array.from(new Array(2)).map(() => Math.random().toString(36)).join('')
+	}
 	exec('smbpasswd', ['-s', '-a', user.name], user.password + '\n' + user.password)
 })
 
@@ -38,16 +47,30 @@ function exec(cmd, args = [], input) {
 	let tmpl = '['+storage.name+']\n'
 	tmpl += 'path = "' + storage.path + '"\n'
 
-	const caracts = {
+	let caracts = {
 		'available': 'no',
 		'guest ok': 'no',
 		'browseable': 'no',
 		'writable': 'no',
 		'valid users': [], //'me'
-		'write list': [] // ['me', '@family']
+		'write list': [], // ['me', '@family']
+		'vfs objects': [],
+		'create mask': '0640',
+		'directory mask': '0750',
+		'force create mode': null,
+		'force directory mode': null
 	}
 
 	;(storage.permissions || []).forEach(permission => {
+		if (permission.guest) {
+			if (permission.mode === 'rw') {
+				throw new Error('Guest RW not implemented')
+			}
+
+			caracts.available = 'yes'
+			caracts['guest ok'] = 'yes'
+		}
+
 		;(permission.users || []).forEach(user => {
 			caracts.available = 'yes'
 			caracts['valid users'].push(user)
@@ -64,6 +87,42 @@ function exec(cmd, args = [], input) {
 			}
 		})
 	})
+
+	if (caracts['guest ok'] === 'yes' && caracts['valid users'].length === 0) {
+		caracts['guest only'] = 'yes'
+	}
+
+	if (storage.uMasks) {
+		if (storage.uMasks.allowedForFiles) {
+			caracts['create mask'] = storage.uMasks.allowedForFiles
+		}
+
+		if (storage.uMasks.allowedForDirs) {
+			caracts['directory mask'] = storage.uMasks.allowedForDirs
+		}
+
+		if (storage.uMasks.forcedForFiles) {
+			caracts['force create mode'] = storage.uMasks.forcedForFiles
+		}
+
+		if (storage.uMasks.forcedForDirs) {
+			caracts['force directory mode'] = storage.uMasks.forcedForDirs
+		}
+	}
+
+	if (storage.recycle !== false) {
+		caracts['vfs objects'].push('recycle')
+		const recycleConf = storage.recycle === true ? {} : storage.recycle
+		const recycleCaracts = {
+			'recycle:repository': recycleConf.path || '.bin',
+			'recycle:keeptree': 'yes',
+			'recycle:versions': 'yes',
+			'recycle:directory_mode': storage.uMasks?.recycleDir || '0750'
+			//; recycle:subdir_mode = xxx
+		}
+
+		caracts = {...caracts, ...recycleCaracts}
+	}
 
 	tmpl += Object.keys(caracts)
 	.filter(cName => Array.isArray(caracts[cName]) ? caracts[cName].length > 0 : caracts[cName] !== null)
