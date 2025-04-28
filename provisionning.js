@@ -7,8 +7,9 @@ const writeHandler = createWriteStream(process.env.CONFIG_FILE, {flags: 'a'})
 writeHandler.write(`
 netbios name = ${process.env.HOSTNAME}
 server string = ${process.env.HOSTNAME}
-browse list = no
 guest account = ${config.guestUser || 'nobody'}
+browse list = ${config.visible || 'no'}
+workgroup = ${config.workgroup || 'WORKGROUP'}
 
 [ipc$]
 path = "/dev/null"
@@ -59,6 +60,10 @@ function exec(cmd, args = [], input) {
         'directory mask': '0750',
         'force create mode': null,
         'force directory mode': null
+    }
+
+    if (storage.visible) {
+        caracts['browseable'] = true
     }
 
     ;(storage.permissions || []).forEach(permission => {

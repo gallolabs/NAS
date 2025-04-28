@@ -48,6 +48,7 @@ services:
               {
                   "name": "music",
                   "path": "/toto",
+                  "visible": true,
                   "uMasks": {
                     "allowedForFiles": "0660",
                     "allowedForDirs": "0770",
