@@ -6,7 +6,7 @@ services:
     build:
       context: .
     volumes:
-      - .:/toto:ro
+      - .:/mnt/test:ro
     ports:
       - 139:139
       - 445:445
@@ -15,6 +15,7 @@ services:
       - 137:137/udp
       - 138:138/udp
       - 445:445/udp
+      - 8080:80
     environment:
      TZ: Europe/Paris
      CONFIG: >
@@ -40,14 +41,16 @@ services:
               },
               {
                   "name": "anybody",
-                  "id": "1003"
+                  "id": "1003",
+                  "password": null
               }
           ],
           "guestUser": "anybody",
-          "storages": [
+          "shares": [
               {
+                  "channels": ["smb", "webdav"],
                   "name": "music",
-                  "path": "/toto",
+                  "path": "/mnt/test",
                   "visible": true,
                   "uMasks": {
                     "allowedForFiles": "0660",

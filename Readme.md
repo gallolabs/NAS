@@ -3,9 +3,22 @@
   <h1 align="center">Gallo NAS</h1>
 </p>
 
-Only SMBD has been implemented. Webdav and others protocols can be added.
+## Protocols
+- [X] SMB (samba)
+- [x] webdav (only for guest). Others have to be implemented with dedicated nginx by user + reverse proxy, and see for recycle
+- [ ] SFTP ; note that is oriented user, not share. Maybe use lns to simulate shares.
+- [ ] FTP
 
 This is a simple app for my needs, that can be improved.
+
+## What misses (except protocols)
+
+- schema check
+- Galloapp integration to add various config inputs and metrics (on loggings for example)
+- refactory
+- support container restart
+- ensure to deactivate all unused resources by security
+- use supervisor or equiv to handle various processes
 
 ## Example of use
 
@@ -38,10 +51,11 @@ See docker-compose.yml. The config example :
       }
   ],
   "guestUser": "anybody",
-  "storages": [
+  "shares": [
       {
+          "channels": ["smb", "webdav"],
           "name": "music",
-          "path": "/toto",
+          "path": "/mnt/toto",
           "uMasks": {
             "allowedForFiles": "0660",
             "allowedForDirs": "0770",
@@ -66,10 +80,4 @@ See docker-compose.yml. The config example :
 }
 ```
 
-No Linux ACL are set. Ensure your storages root directories have the good uid/guid/ACL and your configuration is logic.
-
-## Next steps
-
-- Integrate Gallolabs app to accepts various formats
-- Also by this integration emits metrics, particulary about auth
-- 
+No Linux ACL are changed, this is an intrusive behavior. Ensure your storages root directories have the good uid/guid/ACL and your configuration is logic.
