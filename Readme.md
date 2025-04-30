@@ -8,6 +8,8 @@
 - [x] webdav (only for guest). Others have to be implemented with dedicated nginx by user + reverse proxy, and see for recycle
 - [ ] SFTP ; note that is oriented user, not share. Maybe use lns to simulate shares.
 - [ ] FTP
+- [ ] NFS
+- [ ] AFP (joke)
 
 This is a simple app for my needs, that can be improved.
 
