@@ -57,7 +57,7 @@ See docker-compose.yml. The config example :
   "guestUser": "anybody",
   "shares": [
       {
-          "channels": ["smb", "webdav"],
+          "channels": ["smb", "webdav", "ftp"],
           "name": "music",
           "path": "/mnt/toto",
           "uMasks": {
