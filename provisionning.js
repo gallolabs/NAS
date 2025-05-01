@@ -115,13 +115,12 @@ http {
     server {
         listen 80;
         client_max_body_size 0;
-
+        charset utf-8;
         # root /dev/null;
         root /home/${guestUser};
-        autoindex on;
-        autoindex_exact_size off;
-        autoindex_localtime on;
-        charset utf-8;
+
+        fancyindex on;
+        fancyindex_show_dotfiles on;
 `)
 
 // htpasswd -bc /etc/nginx/htpasswd $USERNAME $PASSWORD
@@ -234,10 +233,6 @@ http {
 
                     location /${storage.name} {
                         # create_full_put_path on;
-                        autoindex on;
-                        autoindex_exact_size off;
-                        autoindex_localtime on;
-                        charset utf-8;
 
                         #dav_methods PUT DELETE MKCOL COPY MOVE;
                         dav_ext_methods PROPFIND OPTIONS;

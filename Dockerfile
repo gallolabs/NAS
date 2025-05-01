@@ -1,14 +1,11 @@
 FROM alpine:latest
 
-RUN apk add --no-cache samba-common-tools samba tzdata
-
-RUN apk add --no-cache nodejs
-
-RUN apk add --no-cache nginx nginx-mod-http-dav-ext apache2-utils
-
-RUN apk add --no-cache vsftpd
-
-RUN apk add --no-cache openssh-sftp-server openssh-server
+RUN apk add --no-cache \
+	samba-common-tools samba \
+	tzdata nodejs \
+	nginx nginx-mod-http-fancyindex nginx-mod-http-dav-ext apache2-utils \
+	vsftpd \
+	openssh-sftp-server openssh-server
 
 RUN rm /etc/nginx/http.d/* /etc/nginx/nginx.conf /etc/vsftpd/vsftpd.conf /etc/ssh/sshd_config
 

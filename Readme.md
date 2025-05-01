@@ -16,6 +16,7 @@ This is a simple app for my needs, that can be improved.
 ## What misses (except protocols)
 
 - schema check
+- a good webdav server https://github.com/fstanis/awesome-webdav?tab=readme-ov-file#servers
 - encryption
 - ftp logrotate
 - webdav list of visible shares depending of the user (or not, like SMB)
