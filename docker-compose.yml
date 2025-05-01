@@ -16,6 +16,11 @@ services:
       - 138:138/udp
       - 445:445/udp
       - 8080:80
+      - "20:20"
+      - "21:21"
+      - 2042-2045:2042-2045
+    cap_add:
+      - CAP_SYS_ADMIN
     environment:
      TZ: Europe/Paris
      CONFIG: >
@@ -48,7 +53,7 @@ services:
           "guestUser": "anybody",
           "shares": [
               {
-                  "channels": ["smb", "webdav"],
+                  "channels": ["smb", "webdav", "ftp"],
                   "name": "music",
                   "path": "/mnt/test",
                   "visible": true,

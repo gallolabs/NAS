@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { createWriteStream, writeFileSync } from 'fs'
+import { createWriteStream, writeFileSync, mkdirSync } from 'fs'
 
 const config = JSON.parse(process.env.CONFIG)
 const writeHandler = createWriteStream(process.env.CONFIG_FILE)
@@ -40,6 +40,7 @@ available = no
 `)
 
 const nginxGuestWriteHandler = createWriteStream('/etc/nginx/nginx.conf')
+const ftpdWriteHandler = createWriteStream('/etc/vsftpd/vsftpd.conf')
 
 function exec(cmd, args = [], input) {
     const {status, stderr} = spawnSync(cmd, args, {input})
@@ -62,6 +63,7 @@ const simpleUsersMap = {}
     const secondaryGroups = user.groups ? user.groups.slice(1) : []
     console.log('Creation user ' + user.name + ' with groups', primaryGroup, secondaryGroups)
     exec('adduser', ['-u', user.id, '-g', primaryGroup, ...secondaryGroups.length > 0 ? ['-G', secondaryGroups.join(',')] : [], user.name, '-SHD'])
+    mkdirSync('/home/' + user.name)
     if (!user.password) {
         if (user.password !== null) {
             throw new Error('Missing password for user ' + user.name + ' or explicit null one')
@@ -119,8 +121,6 @@ http {
 `)
 
 // htpasswd -bc /etc/nginx/htpasswd $USERNAME $PASSWORD
-
-
 
 ;(config.shares || []).forEach(storage => {
     console.log('Configuring storage ' + storage.name)
@@ -248,6 +248,37 @@ http {
             `)
         }
     }
+
+    if (storage.channels.includes('ftp')) {
+        const hasGuestPerm = storage.permissions.some(p => p.guest)
+
+        if (hasGuestPerm) {
+            ftpdWriteHandler.write(`
+                listen=YES
+                anonymous_enable=YES
+                anon_upload_enable=NO
+                anon_mkdir_write_enable=NO
+                anon_other_write_enable=NO
+                anon_world_readable_only=YES
+                anon_root=/home/${guestUser}
+                setproctitle_enable=YES
+                seccomp_sandbox=NO
+                vsftpd_log_file=/var/log/sftpd.log
+                ftp_username=${guestUser}
+                guest_username=${guestUser}
+                dual_log_enable=YES
+                no_anon_password=Yes
+                log_ftp_protocol=YES
+                pasv_address=172.25.217.80
+                pasv_min_port=2042
+                pasv_max_port=2045
+            `)
+        }
+
+        mkdirSync(`/home/${guestUser}/${storage.name}`)
+        exec('mount', ['--bind', storage.path, `/home/${guestUser}/${storage.name}`])
+    }
+
 })
 
 writeHandler.close()
@@ -256,3 +287,5 @@ nginxGuestWriteHandler.write(`
     }
 }
 `)
+nginxGuestWriteHandler.close()
+ftpdWriteHandler.close()
