@@ -8,14 +8,18 @@ RUN apk add --no-cache nginx nginx-mod-http-dav-ext apache2-utils
 
 RUN apk add --no-cache vsftpd
 
-RUN rm /etc/nginx/http.d/* /etc/nginx/nginx.conf /etc/vsftpd/vsftpd.conf
+RUN apk add --no-cache openssh-sftp-server openssh-server
+
+RUN rm /etc/nginx/http.d/* /etc/nginx/nginx.conf /etc/vsftpd/vsftpd.conf /etc/ssh/sshd_config
 
 WORKDIR /app
 
 COPY entrypoint.sh provisionning.js ./
 
-EXPOSE 137/udp 138/udp 139 445 80 20 21
+EXPOSE 137/udp 138/udp 139 445 80 20 21 22
 
 HEALTHCHECK --interval=60s --timeout=15s CMD smbclient -L \\localhost -U %
+
+VOLUME /var/lib/nas
 
 CMD ["./entrypoint.sh"]

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { createWriteStream, writeFileSync, mkdirSync } from 'fs'
+import { createWriteStream, writeFileSync, mkdirSync, existsSync } from 'fs'
 
 const config = JSON.parse(process.env.CONFIG)
 const writeHandler = createWriteStream(process.env.CONFIG_FILE)
@@ -41,6 +41,7 @@ available = no
 
 const nginxGuestWriteHandler = createWriteStream('/etc/nginx/nginx.conf')
 const ftpdWriteHandler = createWriteStream('/etc/vsftpd/vsftpd.conf')
+const sftpWriteHandler = createWriteStream('/etc/ssh/sshd_config')
 
 function exec(cmd, args = [], input) {
     const {status, stderr} = spawnSync(cmd, args, {input})
@@ -65,20 +66,22 @@ const simpleUsersMap = {}
     exec('adduser', ['-u', user.id, '-g', primaryGroup, ...secondaryGroups.length > 0 ? ['-G', secondaryGroups.join(',')] : [], user.name, '-SHD'])
     mkdirSync('/home/' + user.name)
     if (!user.password) {
-        if (user.password !== null) {
+        if (user.password !== null && user.name !== guestUser) {
             throw new Error('Missing password for user ' + user.name + ' or explicit null one')
         }
         user.password = Array.from(new Array(2)).map(() => Math.random().toString(36)).join('')
     }
     exec('smbpasswd', ['-s', '-a', user.name], user.password + '\n' + user.password)
+    if (user.name === guestUser) {
+        exec('passwd', ['-d', 'anybody'])
+    }
 })
 
 nginxGuestWriteHandler.write(`
 user ${guestUser} ${simpleUsersMap[guestUser]};
-
+error_log /var/log/nginx/error.log warn;
 worker_processes auto;
 pcre_jit on;
-error_log /dev/stdout warn;
 include /etc/nginx/modules/*.conf;
 include /etc/nginx/conf.d/*.conf;
 
@@ -107,17 +110,18 @@ http {
                     '$status $body_bytes_sent "$http_referer" '
                     '"$http_user_agent" "$http_x_forwarded_for"';
 
-    access_log /dev/stdout main;
+    # access_log /dev/stdout main;
 
     server {
         listen 80;
-
-        access_log /dev/stdout;
-        error_log /dev/stdout info;
-
         client_max_body_size 0;
 
-        root /dev/null;
+        # root /dev/null;
+        root /home/${guestUser};
+        autoindex on;
+        autoindex_exact_size off;
+        autoindex_localtime on;
+        charset utf-8;
 `)
 
 // htpasswd -bc /etc/nginx/htpasswd $USERNAME $PASSWORD
@@ -268,15 +272,48 @@ http {
                 guest_username=${guestUser}
                 dual_log_enable=YES
                 no_anon_password=Yes
-                log_ftp_protocol=YES
+                log_ftp_protocol=NO
                 pasv_address=172.25.217.80
                 pasv_min_port=2042
                 pasv_max_port=2045
+                force_dot_files=YES
             `)
         }
 
         mkdirSync(`/home/${guestUser}/${storage.name}`)
         exec('mount', ['--bind', storage.path, `/home/${guestUser}/${storage.name}`])
+    }
+
+
+
+
+
+    if (storage.channels.includes('sftp')) {
+
+        if (!existsSync('/var/lib/nas/ssh')) {
+            mkdirSync('/var/lib/nas/ssh')
+            exec('sh', ['-c', "ssh-keygen -t ed25519 -f /var/lib/nas/ssh/ssh_host_ed25519_key -N '' && chmod 600 /var/lib/nas/ssh/ssh_host_ed25519_key"])
+            exec('sh', ['-c', "ssh-keygen -t rsa -b 4096 -f /var/lib/nas/ssh/ssh_host_rsa_key -N '' && chmod 600 /var/lib/nas/ssh/ssh_host_rsa_key"])
+        }
+
+        sftpWriteHandler.write(`
+            Protocol 2
+            HostKey /var/lib/nas/ssh/ssh_host_ed25519_key
+            HostKey /var/lib/nas/ssh/ssh_host_rsa_key
+            Port 22
+            PermitRootLogin no
+            X11Forwarding no
+            AllowTcpForwarding no
+            UseDNS no
+            AllowUsers ${guestUser}
+
+            Subsystem sftp internal-sftp
+            ForceCommand internal-sftp
+            ChrootDirectory %h
+            PermitEmptyPasswords yes
+        `)
+
+        // exec('sh', ['-c', 'echo ssh >> /etc/securetty'])
     }
 
 })

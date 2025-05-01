@@ -6,7 +6,7 @@
 ## Protocols
 - [X] SMB (samba)
 - [x] webdav (only for guest). Others have to be implemented with dedicated nginx by user + reverse proxy, and see for recycle
-- [ ] SFTP ; note that is oriented user, not share. Maybe use lns to simulate shares.
+- [x] SFTP (Only guest). See recycle
 - [x] FTP (only for guest). See recycle
 - [ ] NFS
 - [ ] AFP (joke)
@@ -16,6 +16,7 @@ This is a simple app for my needs, that can be improved.
 ## What misses (except protocols)
 
 - schema check
+- encryption
 - ftp logrotate
 - webdav list of visible shares depending of the user (or not, like SMB)
 - Galloapp integration to add various config inputs and metrics (on loggings for example)
@@ -57,7 +58,7 @@ See docker-compose.yml. The config example :
   "guestUser": "anybody",
   "shares": [
       {
-          "channels": ["smb", "webdav", "ftp"],
+          "channels": ["smb", "webdav", "sftp", "ftp"],
           "name": "music",
           "path": "/mnt/toto",
           "uMasks": {

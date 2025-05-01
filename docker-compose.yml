@@ -19,6 +19,7 @@ services:
       - "20:20"
       - "21:21"
       - 2042-2045:2042-2045
+      - "22:22"
     cap_add:
       - CAP_SYS_ADMIN
     environment:
@@ -53,7 +54,7 @@ services:
           "guestUser": "anybody",
           "shares": [
               {
-                  "channels": ["smb", "webdav", "ftp"],
+                  "channels": ["smb", "webdav", "ftp", "sftp"],
                   "name": "music",
                   "path": "/mnt/test",
                   "visible": true,
