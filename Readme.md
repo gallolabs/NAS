@@ -8,8 +8,7 @@
 - [x] webdav (only for guest). Others have to be implemented with dedicated nginx by user + reverse proxy, and see for recycle
 - [x] SFTP (Only guest). See recycle
 - [x] FTP (only for guest). See recycle
-- [ ] NFS
-- [ ] AFP (joke)
+- [x] NFS (only for guest). See recycle
 
 This is a simple app for my needs, that can be improved.
 
@@ -18,6 +17,8 @@ This is a simple app for my needs, that can be improved.
 - schema check
 - a good webdav server https://github.com/fstanis/awesome-webdav?tab=readme-ov-file#servers
 - encryption
+- disable ipv6 (option)
+- Add build disableable services to reduce image size and attack surface
 - ftp logrotate
 - webdav list of visible shares depending of the user (or not, like SMB)
 - Galloapp integration to add various config inputs and metrics (on loggings for example)
@@ -35,7 +36,7 @@ See docker-compose.yml. The config example :
   "groups": [
       {
           "name": "family",
-          "id": 1100
+          "id": "1100"
       }
   ],
   "users": [
@@ -59,7 +60,7 @@ See docker-compose.yml. The config example :
   "guestUser": "anybody",
   "shares": [
       {
-          "channels": ["smb", "webdav", "sftp", "ftp"],
+          "channels": ["smb", "webdav", "sftp", "ftp", "nfs"],
           "name": "music",
           "path": "/mnt/toto",
           "uMasks": {

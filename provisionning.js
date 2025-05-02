@@ -42,6 +42,7 @@ available = no
 const nginxGuestWriteHandler = createWriteStream('/etc/nginx/nginx.conf')
 const ftpdWriteHandler = createWriteStream('/etc/vsftpd/vsftpd.conf')
 const sftpWriteHandler = createWriteStream('/etc/ssh/sshd_config')
+const nfsWriteHandler = createWriteStream('/etc/exports')
 
 function exec(cmd, args = [], input) {
     const {status, stderr} = spawnSync(cmd, args, {input})
@@ -279,36 +280,49 @@ http {
         exec('mount', ['--bind', storage.path, `/home/${guestUser}/${storage.name}`])
     }
 
-
-
-
-
     if (storage.channels.includes('sftp')) {
 
-        if (!existsSync('/var/lib/nas/ssh')) {
-            mkdirSync('/var/lib/nas/ssh')
-            exec('sh', ['-c', "ssh-keygen -t ed25519 -f /var/lib/nas/ssh/ssh_host_ed25519_key -N '' && chmod 600 /var/lib/nas/ssh/ssh_host_ed25519_key"])
-            exec('sh', ['-c', "ssh-keygen -t rsa -b 4096 -f /var/lib/nas/ssh/ssh_host_rsa_key -N '' && chmod 600 /var/lib/nas/ssh/ssh_host_rsa_key"])
+        const hasGuestPerm = storage.permissions.some(p => p.guest)
+
+        if (hasGuestPerm) {
+
+            if (!existsSync('/var/lib/nas/ssh')) {
+                mkdirSync('/var/lib/nas/ssh')
+                exec('sh', ['-c', "ssh-keygen -t ed25519 -f /var/lib/nas/ssh/ssh_host_ed25519_key -N '' && chmod 600 /var/lib/nas/ssh/ssh_host_ed25519_key"])
+                exec('sh', ['-c', "ssh-keygen -t rsa -b 4096 -f /var/lib/nas/ssh/ssh_host_rsa_key -N '' && chmod 600 /var/lib/nas/ssh/ssh_host_rsa_key"])
+            }
+
+            sftpWriteHandler.write(`
+                Protocol 2
+                HostKey /var/lib/nas/ssh/ssh_host_ed25519_key
+                HostKey /var/lib/nas/ssh/ssh_host_rsa_key
+                Port 22
+                PermitRootLogin no
+                X11Forwarding no
+                AllowTcpForwarding no
+                UseDNS no
+                AllowUsers ${guestUser}
+
+                Subsystem sftp internal-sftp
+                ForceCommand internal-sftp
+                ChrootDirectory %h
+                PermitEmptyPasswords yes
+            `)
         }
-
-        sftpWriteHandler.write(`
-            Protocol 2
-            HostKey /var/lib/nas/ssh/ssh_host_ed25519_key
-            HostKey /var/lib/nas/ssh/ssh_host_rsa_key
-            Port 22
-            PermitRootLogin no
-            X11Forwarding no
-            AllowTcpForwarding no
-            UseDNS no
-            AllowUsers ${guestUser}
-
-            Subsystem sftp internal-sftp
-            ForceCommand internal-sftp
-            ChrootDirectory %h
-            PermitEmptyPasswords yes
-        `)
-
         // exec('sh', ['-c', 'echo ssh >> /etc/securetty'])
+    }
+
+    if (storage.channels.includes('nfs')) {
+
+        const hasGuestPerm = storage.permissions.some(p => p.guest)
+
+        if (hasGuestPerm) {
+
+            nfsWriteHandler.write(`
+                ${storage.path} *(ro,no_subtree_check)
+            `)
+
+        }
     }
 
 })
@@ -321,3 +335,4 @@ nginxGuestWriteHandler.write(`
 `)
 nginxGuestWriteHandler.close()
 ftpdWriteHandler.close()
+nfsWriteHandler.close()

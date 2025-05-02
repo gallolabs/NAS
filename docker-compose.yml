@@ -54,7 +54,7 @@ services:
           "guestUser": "anybody",
           "shares": [
               {
-                  "channels": ["smb", "webdav", "ftp", "sftp"],
+                  "channels": ["smb", "webdav", "ftp", "sftp", "nfs"],
                   "name": "music",
                   "path": "/mnt/test",
                   "visible": true,
