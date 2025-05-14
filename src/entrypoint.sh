@@ -2,11 +2,6 @@
 
 set -e
 
-CONFIG_FILE='/etc/samba/smb.conf'
-HOSTNAME=`hostname`
-
-export HOSTNAME
-export CONFIG_FILE
 node provisionning.js | sed 's/^/[INIT ] /'
 nmbd -D
 nginx -c /etc/nginx/nginx.conf -g "daemon off;" &

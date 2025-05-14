@@ -2,11 +2,10 @@ version: "3.5"
 
 services:
   nas:
-    restart: unless-stopped
     build:
       context: .
     volumes:
-      - .:/mnt/test:ro
+      - .:/mnt/test
     ports:
       - 139:139
       - 445:445
@@ -35,7 +34,7 @@ services:
           "users": [
               {
                   "name": "me",
-                  "id": "1001",
+                  "id": "1000",
                   "groups": ["family"],
                   "password": "myself"
               },
