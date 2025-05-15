@@ -30,5 +30,4 @@ HEALTHCHECK --interval=60s --timeout=15s CMD smbclient -L \\localhost -U %
 
 VOLUME /var/lib/nas
 
-
 CMD ["node", "."]

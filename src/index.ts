@@ -3,7 +3,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { createWriteStream, mkdirSync/*, existsSync*/ } from 'fs'
 import {hostname as getHostname} from 'os'
 import {omit, flatten, uniq} from 'lodash-es'
-import { setTimeout } from 'node:timers/promises'
+import { once } from 'node:events'
 
 function exec(cmd: string, args: string[] = [], input?: any) {
     const {status, stderr} = spawnSync(cmd, args, {input})
@@ -403,7 +403,6 @@ available = no
     async startAndMonitorSmbChannel(_item: StartAndMonitorSmbChannelPlanItem) {
         const nmdb = spawn('nmbd', ['-D'])
 
-
         nmdb.stdout.on('data', (data) => {
             console.log('data from nmdb', data.toString())
         })
@@ -416,55 +415,61 @@ available = no
             console.log('nmdb ended ' + code)
         })
 
+        await once(nmdb, 'exit')
 
-        nmdb.on('exit', (code) => {
-            console.log('nmdb ended ' + code)
+        const smbd = spawn('smbd', ['--debug-stdout', '-F', '--no-process-group', '--configfile=/etc/samba/smb.conf'], {
+            stdio: ['ignore', 'pipe', 'pipe']
         })
 
+        smbd.stdout.on('data', (rawData) => {
+            const data: string = rawData.toString().trim()
+            console.log('data stdout from smbd', data)
 
-        await setTimeout(1000)
+            if (data.startsWith('{') && data.endsWith('}')) {
+                const parsed = JSON.parse(data)
 
-        const smbd = spawn('smbd', ['-F', '--no-process-group', '--configfile=/etc/samba/smb.conf'])
-
-        smbd.stdout.on('data', (data) => {
-            console.log('data from smbd', data.toString())
+                if (parsed.type === 'Authentication') {
+                    const success = parsed.Authentication.status === 'NT_STATUS_OK'
+                    console.log('Increment SMB auth ; success ?', success)
+                }
+            }
         })
 
 
         smbd.stderr.on('data', (data) => {
-            console.log('data from smbd', data.toString())
+            console.log('data err from smbd', data.toString())
         })
         smbd.on('error', (code) => {
             console.log('smbd ended ' + code)
         })
 
 
-        smbd.on('exit', (code) => {
+        smbd.on('close', (code) => {
             console.log('smbd ended ' + code)
         })
 
 
-        await setTimeout(2000)
+        // await setTimeout(10000)
 
 
-        const tail = spawn('tail', ['-q', '-n', '+1', '-F', '/var/log/samba/log.smbd'])
+        // const tail = spawn('tail', ['-q', '-n', '+1', '-F', '/var/log/samba/log.smbd'])
 
-        tail.stdout.on('data', (data) => {
-            console.log('data from tail', data.toString())
-        })
-
-
-        tail.stderr.on('data', (data) => {
-            console.log('data from tail', data.toString())
-        })
-        tail.on('error', (code) => {
-            console.log('Tail ended ' + code)
-        })
+        // tail.stdout.on('data', (data) => {
+        //     console.log('data from tail', data.toString())
+        // })
 
 
-        tail.on('exit', (code) => {
-            console.log('Tail ended ' + code)
-        })
+        // tail.stderr.on('data', (data) => {
+        //     console.log('data from tail', data.toString())
+        // })
+        // tail.on('error', (code) => {
+        //     console.log('Tail ended ' + code)
+        // })
+
+
+        // tail.on('exit', (code) => {
+        //     console.log('Tail ended ' + code)
+        // })
 
         console.log('started')
     }

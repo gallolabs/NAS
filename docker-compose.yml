@@ -5,7 +5,7 @@ services:
     build:
       context: .
     volumes:
-      - .:/mnt/test
+      - .:/mnt/test:ro
     ports:
       - 139:139
       - 445:445
