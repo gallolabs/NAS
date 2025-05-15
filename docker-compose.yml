@@ -19,6 +19,7 @@ services:
       - "21:21"
       - 2042-2045:2042-2045
       - "22:22"
+      - "443:443"
     cap_add:
       - CAP_SYS_ADMIN
     environment:

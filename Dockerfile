@@ -19,12 +19,14 @@ COPY package.json package-lock.json ./
 
 RUN npm i
 
+RUN apk add --no-cache openssl
+
 COPY src ./src
 COPY tsconfig.json ./
 
 RUN npm run build
 
-EXPOSE 137/udp 138/udp 139 445 80 20 21 22 111 2049
+EXPOSE 137/udp 138/udp 139 445 80 20 21 22 111 2049 443
 
 HEALTHCHECK --interval=60s --timeout=15s CMD smbclient -L \\localhost -U %
 

@@ -4,6 +4,9 @@ import { createWriteStream, mkdirSync/*, existsSync*/ } from 'fs'
 import {hostname as getHostname} from 'os'
 import {omit, flatten, uniq} from 'lodash-es'
 import { once } from 'node:events'
+import { existsSync } from 'node:fs'
+
+const volumePath = '/var/lib/nas'
 
 function exec(cmd: string, args: string[] = [], input?: any) {
     const {status, stderr} = spawnSync(cmd, args, {input})
@@ -49,6 +52,7 @@ interface UserConfig {
   }>
   smbOpts?: {
     visible?: boolean
+    encryption?: boolean
   }
   workgroup?: string
   encryption?: boolean
@@ -331,7 +335,7 @@ const planRunDef = {
             guest account = ${state.guestUser}
             browse list = ${config.smbOpts?.visible && 'yes' || 'no'}
             workgroup = ${config.workgroup || 'WORKGROUP'}
-            smb encrypt = ${config.encryption === undefined ? 'default' : (config.encryption && 'default' || 'off') }
+            smb encrypt = ${config.smbOpts?.encryption === undefined ? 'default' : (config.smbOpts?.encryption && 'default' || 'off') }
 
             [ipc$]
             path = "/dev/null"
@@ -488,6 +492,18 @@ const planRunDef = {
 
         const guestGroup = state.users.find(user => user.name === state.guestUser)!.primaryGroup
 
+        if (!existsSync(volumePath + '/webdav/ssl')) {
+            mkdirSync(volumePath + '/webdav/ssl', {recursive: true})
+            exec('openssl', [
+                'req', '-x509', '-nodes', '-days', '365',
+                '-subj', '/C=CA/ST=QC/O=Gallonas Inc/CN=localhost',
+                '-newkey', 'rsa:2048',
+                '-keyout', volumePath + '/webdav/ssl/nginx.key',
+                '-out', volumePath + '/webdav/ssl/nginx.crt'
+            ])
+            exec('chmod', ['-R', 'o-rwx,g-rwx', volumePath + '/webdav/ssl'])
+        }
+
         nginxGuestWriteHandler.write(`
         user ${state.guestUser} ${guestGroup};
         error_log /var/log/nginx/error.log warn;
@@ -524,7 +540,13 @@ const planRunDef = {
             # access_log /dev/stdout main;
 
             server {
+                server_name localhost;
                 listen 80;
+                listen              443 ssl;
+
+                ssl_certificate     ${volumePath}/webdav/ssl/nginx.crt;
+                ssl_certificate_key ${volumePath}/webdav/ssl/nginx.key;
+
                 client_max_body_size 0;
                 charset utf-8;
                 # root /dev/null;
@@ -557,7 +579,7 @@ const planRunDef = {
             }
         }
 
-        // Yes, it's shitty code ; I would like to throw stones on me
+        // Yes, it's shitty code ; I would like to throw stones to me
         nginxGuestWriteHandler.write(`
             }
         }
@@ -656,13 +678,6 @@ console.log(state)
 // // htpasswd -bc /etc/nginx/htpasswd $USERNAME $PASSWORD
 
 // ;(config.shares || []).forEach(storage => {
-//     console.log('Configuring storage ' + storage.name)
-
-//     if (!storage.channels || storage.channels.length === 0) {
-//         return
-//     }
-
-
 
 //     if (storage.channels.includes('ftp')) {
 //         const hasGuestPerm = storage.permissions.some(p => p.guest)
@@ -741,8 +756,6 @@ console.log(state)
 //     }
 
 // })
-
-
 
 // ftpdWriteHandler.close()
 // nfsWriteHandler.close()
