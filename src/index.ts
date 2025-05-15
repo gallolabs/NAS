@@ -37,15 +37,19 @@ interface UserConfig {
         forcedForDirs: string
         recycleDir: string
       },
-      recycle?: boolean | { path?: boolean }
       permissions: Array<{
           mode: string
           users?: string[]
           groups?: string[]
           guest?: boolean
       }>
+      smbOpts?: {
+        recycle?: boolean | { path?: boolean }
+      }
   }>
-  visible?: boolean
+  smbOpts?: {
+    visible?: boolean
+  }
   workgroup?: string
   encryption?: boolean
 }
@@ -59,8 +63,12 @@ interface CreateGroupPlanItem {
     id: number
 }
 
-interface CreateUserPlanItem {
+interface CreateUserPlanItem extends Omit<RegisterUserPlanItem, 'action'> {
     action: 'createUser'
+}
+
+interface RegisterUserPlanItem {
+    action: 'registerUser'
     name: string
     id: number
     primaryGroup: string
@@ -82,11 +90,24 @@ interface StartAndMonitorSmbChannelPlanItem {
     action: 'startAndMonitorSmbChannel'
 }
 
+interface ConfigureWebdavChannelPlanItem {
+    action: 'configureWebdavChannel'
+    shares: UserConfig['shares']
+}
+
+interface StartAndMonitorWebdavChannelPlanItem {
+    action: 'startAndMonitorWebdavChannel'
+}
+
+
 type PlanItem = CreateGroupPlanItem
     | CreateUserPlanItem
     | DefineGuestUserPlanItem
     | ConfigureSmbChannelPlanItem
     | StartAndMonitorSmbChannelPlanItem
+    | RegisterUserPlanItem
+    | ConfigureWebdavChannelPlanItem
+    | StartAndMonitorWebdavChannelPlanItem
 
 
 // Define a plan of execution and state
@@ -117,7 +138,11 @@ function computePlan({groups, users, guestUser, shares}: UserConfig) {
         })
     }
 
-    if (guestUser && guestUser !== 'anybody' && !users.some(user => user.name === guestUser)) {
+    if (!guestUser) {
+        guestUser = 'nobody'
+    }
+
+    if (guestUser !== 'nobody' && !users.some(user => user.name === guestUser)) {
         //try {
         //    exec('id', [guestUser])
         //} catch (cause) {
@@ -125,9 +150,20 @@ function computePlan({groups, users, guestUser, shares}: UserConfig) {
         //}
     }
 
+    if (guestUser === 'nobody') {
+        plan.push({
+            action: 'registerUser',
+            name: 'nobody',
+            id: 65534,
+            primaryGroup: 'nobody',
+            secondaryGroups: [],
+            password: null
+        })
+    }
+
     plan.push({
         action: 'defineGuestUser',
-        guestUser: guestUser || 'anybody'
+        guestUser: guestUser
     })
 
     for (const share of shares) {
@@ -178,10 +214,6 @@ function computePlan({groups, users, guestUser, shares}: UserConfig) {
         const channelInfos = channelsInfos[channelName]
         const sharesForChannel = sharesByChannels[channelName]
 
-        if (channelName !== 'smb') {
-            continue
-        }
-
         // if (channelInfos.needHomeMount) {
         //     sharesForChannel.forEach(share => {
         //         share.permissions.forEach(permission => {
@@ -202,9 +234,7 @@ function computePlan({groups, users, guestUser, shares}: UserConfig) {
 
     for (const channelName in sharesByChannels) {
         const channelInfos = channelsInfos[channelName]
-        if (channelName !== 'smb') {
-            continue
-        }
+
         plan.push({
             action: `startAndMonitor${channelInfos.suffix}Channel` as string
         } as StartAndMonitorSmbChannelPlanItem)
@@ -226,6 +256,11 @@ const state: State = {
 }
 
 const planRunDef = {
+    registerUser(item: RegisterUserPlanItem) {
+        const user = omit(item, 'action')
+        console.log('Registering user ' + user.name + ' with groups', user.primaryGroup, user.secondaryGroups)
+        state.users.push(user)
+    },
     createUser(item: CreateUserPlanItem) {
         const user = omit(item, 'action')
 
@@ -271,36 +306,36 @@ const planRunDef = {
         const writeHandler = createWriteStream('/etc/samba/smb.conf')
 
         writeHandler.write(`
-; https://www.samba.org/samba/docs/current/man-html/smb.conf.5.html
+            ; https://www.samba.org/samba/docs/current/man-html/smb.conf.5.html
 
-[global]
- server role = standalone server
-security = user
-load printers = no
-printing = bsd
-printcap name = /dev/null
-disable spoolss = yes
-map to guest = never
-socket options = TCP_NODELAY IPTOS_LOWDELAY SO_RCVBUF=65536 SO_SNDBUF=65536 SO_KEEPALIVE
-local master = no
-dns proxy = no
-deadtime = 15
-log level = 1 auth_json_audit:3
-max log size = 10
-log file = /var/log/samba/log.smbd
-min protocol = SMB3
-restrict anonymous = 2
+            [global]
+             server role = standalone server
+            security = user
+            load printers = no
+            printing = bsd
+            printcap name = /dev/null
+            disable spoolss = yes
+            map to guest = never
+            socket options = TCP_NODELAY IPTOS_LOWDELAY SO_RCVBUF=65536 SO_SNDBUF=65536 SO_KEEPALIVE
+            local master = no
+            dns proxy = no
+            deadtime = 15
+            log level = 1 auth_json_audit:3
+            max log size = 10
+            log file = /var/log/samba/log.smbd
+            min protocol = SMB3
+            restrict anonymous = 2
 
-netbios name = ${hostname}
-server string = ${hostname}
-guest account = ${state.guestUser}
-browse list = ${config.visible && 'yes' || 'no'}
-workgroup = ${config.workgroup || 'WORKGROUP'}
-smb encrypt = ${config.encryption === undefined ? 'default' : (config.encryption && 'default' || 'off') }
+            netbios name = ${hostname}
+            server string = ${hostname}
+            guest account = ${state.guestUser}
+            browse list = ${config.smbOpts?.visible && 'yes' || 'no'}
+            workgroup = ${config.workgroup || 'WORKGROUP'}
+            smb encrypt = ${config.encryption === undefined ? 'default' : (config.encryption && 'default' || 'off') }
 
-[ipc$]
-path = "/dev/null"
-available = no
+            [ipc$]
+            path = "/dev/null"
+            available = no
         `)
 
         for(const storage of item.shares) {
@@ -375,9 +410,9 @@ available = no
                 }
             }
 
-            if (storage.recycle !== false) {
+            if (storage.smbOpts?.recycle !== false) {
                 caracts['vfs objects'].push('recycle')
-                const recycleConf = storage.recycle === true ? {} : storage.recycle
+                const recycleConf = storage.smbOpts?.recycle === true ? {} : storage.smbOpts?.recycle
                 const recycleCaracts = {
                     'recycle:repository': recycleConf?.path || '.bin',
                     'recycle:keeptree': 'yes',
@@ -406,7 +441,6 @@ available = no
         nmdb.stdout.on('data', (data) => {
             console.log('data from nmdb', data.toString())
         })
-
 
         nmdb.stderr.on('data', (data) => {
             console.log('data from nmdb', data.toString())
@@ -443,40 +477,144 @@ available = no
             console.log('smbd ended ' + code)
         })
 
-
         smbd.on('close', (code) => {
             console.log('smbd ended ' + code)
         })
 
+        console.log('Samba started')
+    },
+    configureWebdavChannel(item: ConfigureWebdavChannelPlanItem) {
+        const nginxGuestWriteHandler = createWriteStream('/etc/nginx/nginx.conf')
 
-        // await setTimeout(10000)
+        const guestGroup = state.users.find(user => user.name === state.guestUser)!.primaryGroup
+
+        nginxGuestWriteHandler.write(`
+        user ${state.guestUser} ${guestGroup};
+        error_log /var/log/nginx/error.log warn;
+        worker_processes auto;
+        pcre_jit on;
+        include /etc/nginx/modules/*.conf;
+        include /etc/nginx/conf.d/*.conf;
+
+        events {
+            worker_connections 1024;
+        }
+
+        http {
+            include /etc/nginx/mime.types;
+            default_type application/octet-stream;
+            server_tokens off;
+            client_max_body_size 1m;
+            sendfile on;
+            tcp_nopush on;
+            ssl_protocols TLSv1.1 TLSv1.2 TLSv1.3;
+            ssl_prefer_server_ciphers on;
+            ssl_session_cache shared:SSL:2m;
+            ssl_session_timeout 1h;
+            ssl_session_tickets off;
+            gzip_vary on;
+            map $http_upgrade $connection_upgrade {
+                    default upgrade;
+                    '' close;
+            }
+            log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                            '$status $body_bytes_sent "$http_referer" '
+                            '"$http_user_agent" "$http_x_forwarded_for"';
+
+            # access_log /dev/stdout main;
+
+            server {
+                listen 80;
+                client_max_body_size 0;
+                charset utf-8;
+                # root /dev/null;
+                root /home/${state.guestUser};
+
+                fancyindex on;
+                fancyindex_show_dotfiles on;
+        `)
+
+        for (const storage of item.shares) {
+            const hasGuestPerm = storage.permissions.some(p => p.guest)
+
+            if (hasGuestPerm) {
+                nginxGuestWriteHandler.write(`
+
+                    location /${storage.name} {
+                        # create_full_put_path on;
+
+                        #dav_methods PUT DELETE MKCOL COPY MOVE;
+                        dav_ext_methods PROPFIND OPTIONS;
+                        #dav_access user:rw group:rw all:rw;
+
+                        # auth_basic "Restricted";
+                        # auth_basic_user_file /etc/nginx/htpasswd;
+
+                        root ${storage.path};
+                        rewrite ^/${storage.name}/(.*)$ /$1 break;
+                    }
+                `)
+            }
+        }
+
+        // Yes, it's shitty code ; I would like to throw stones on me
+        nginxGuestWriteHandler.write(`
+            }
+        }
+        `)
+        nginxGuestWriteHandler.close()
+    },
+    startAndMonitorWebdavChannel(_item: StartAndMonitorWebdavChannelPlanItem) {
+        exec('touch', ['/var/log/nginx/error.log', '/var/log/nginx/access.log'])
+        const nginx = spawn('nginx', ['-c', '/etc/nginx/nginx.conf', '-g', 'daemon off;'],{
+            stdio: ['ignore', 'pipe', 'pipe']
+        })
+
+        nginx.stdout.on('data', (data) => {
+            console.log('data from nginx', data.toString())
+        })
 
 
-        // const tail = spawn('tail', ['-q', '-n', '+1', '-F', '/var/log/samba/log.smbd'])
+        nginx.stderr.on('data', (data) => {
+            console.log('data from nginx', data.toString())
+        })
+        nginx.on('error', (code) => {
+            console.log('nginx ended ' + code)
+        })
 
-        // tail.stdout.on('data', (data) => {
-        //     console.log('data from tail', data.toString())
-        // })
+        const tail = spawn('tail', ['-q', '-n', '+1', '-F', '/var/log/nginx/*.log'],{
+            stdio: ['ignore', 'pipe', 'pipe'],
+            shell: true
+        })
+
+        tail.stdout.on('data', (data) => {
+            console.log('data from nginx tail', data.toString())
+        })
 
 
-        // tail.stderr.on('data', (data) => {
-        //     console.log('data from tail', data.toString())
-        // })
-        // tail.on('error', (code) => {
-        //     console.log('Tail ended ' + code)
-        // })
+        tail.stderr.on('data', (data) => {
+            console.log('data from nginx tail', data.toString())
+        })
+        tail.on('error', (code) => {
+            console.log('Nginx Tail ended ' + code)
+        })
 
 
-        // tail.on('exit', (code) => {
-        //     console.log('Tail ended ' + code)
-        // })
+        tail.on('exit', (code) => {
+            console.log('Nginx Tail ended ' + code)
+        })
 
-        console.log('started')
+        console.log('Nginx started')
+
     }
 }
 
 async function runPlan(plan: PlanItem[]) {
     for(const planItem of plan) {
+        if (!planRunDef[planItem.action]) {
+            console.warn(planItem.action + ' has no handler')
+            continue
+        }
         // @ts-ignore
         await planRunDef[planItem.action](planItem)
     }
@@ -508,57 +646,12 @@ console.log(state)
 
 
 
-// const nginxGuestWriteHandler = createWriteStream('/etc/nginx/nginx.conf')
+//
 // const ftpdWriteHandler = createWriteStream('/etc/vsftpd/vsftpd.conf')
 // const sftpWriteHandler = createWriteStream('/etc/ssh/sshd_config')
 // const nfsWriteHandler = createWriteStream('/etc/exports')
 
 
-// nginxGuestWriteHandler.write(`
-// user ${guestUser} ${simpleUsersMap[guestUser]};
-// error_log /var/log/nginx/error.log warn;
-// worker_processes auto;
-// pcre_jit on;
-// include /etc/nginx/modules/*.conf;
-// include /etc/nginx/conf.d/*.conf;
-
-// events {
-//     worker_connections 1024;
-// }
-
-// http {
-//     include /etc/nginx/mime.types;
-//     default_type application/octet-stream;
-//     server_tokens off;
-//     client_max_body_size 1m;
-//     sendfile on;
-//     tcp_nopush on;
-//     ssl_protocols TLSv1.1 TLSv1.2 TLSv1.3;
-//     ssl_prefer_server_ciphers on;
-//     ssl_session_cache shared:SSL:2m;
-//     ssl_session_timeout 1h;
-//     ssl_session_tickets off;
-//     gzip_vary on;
-//     map $http_upgrade $connection_upgrade {
-//             default upgrade;
-//             '' close;
-//     }
-//     log_format main '$remote_addr - $remote_user [$time_local] "$request" '
-//                     '$status $body_bytes_sent "$http_referer" '
-//                     '"$http_user_agent" "$http_x_forwarded_for"';
-
-//     # access_log /dev/stdout main;
-
-//     server {
-//         listen 80;
-//         client_max_body_size 0;
-//         charset utf-8;
-//         # root /dev/null;
-//         root /home/${guestUser};
-
-//         fancyindex on;
-//         fancyindex_show_dotfiles on;
-// `)
 
 // // htpasswd -bc /etc/nginx/htpasswd $USERNAME $PASSWORD
 
@@ -570,28 +663,6 @@ console.log(state)
 //     }
 
 
-//     if (storage.channels.includes('webdav')) {
-//         const hasGuestPerm = storage.permissions.some(p => p.guest)
-
-//         if (hasGuestPerm) {
-//             nginxGuestWriteHandler.write(`
-
-//                     location /${storage.name} {
-//                         # create_full_put_path on;
-
-//                         #dav_methods PUT DELETE MKCOL COPY MOVE;
-//                         dav_ext_methods PROPFIND OPTIONS;
-//                         #dav_access user:rw group:rw all:rw;
-
-//                         # auth_basic "Restricted";
-//                         # auth_basic_user_file /etc/nginx/htpasswd;
-
-//                         root ${storage.path};
-//                         rewrite ^/${storage.name}/(.*)$ /$1 break;
-//                     }
-//             `)
-//         }
-//     }
 
 //     if (storage.channels.includes('ftp')) {
 //         const hasGuestPerm = storage.permissions.some(p => p.guest)
@@ -672,11 +743,6 @@ console.log(state)
 // })
 
 
-// // Yes, it's shitty code ; I would like to throw stones on me
-// nginxGuestWriteHandler.write(`
-//     }
-// }
-// `)
-// nginxGuestWriteHandler.close()
+
 // ftpdWriteHandler.close()
 // nfsWriteHandler.close()
