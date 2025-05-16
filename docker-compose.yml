@@ -2,7 +2,6 @@ version: "3.5"
 
 services:
   nas:
-    restart: unless-stopped
     build:
       context: .
     volumes:
@@ -20,6 +19,7 @@ services:
       - "21:21"
       - 2042-2045:2042-2045
       - "22:22"
+      - "443:443"
     cap_add:
       - CAP_SYS_ADMIN
     environment:
@@ -35,7 +35,7 @@ services:
           "users": [
               {
                   "name": "me",
-                  "id": "1001",
+                  "id": "1000",
                   "groups": ["family"],
                   "password": "myself"
               },

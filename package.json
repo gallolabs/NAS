@@ -1,0 +1,29 @@
+{
+  "name": "@gallolabs/nas",
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "description": "NAS app",
+  "scripts": {
+    "build": "rm -Rf dist && tsc"
+  },
+  "author": "",
+  "type": "module",
+  "license": "ISC",
+  "dependencies": {
+    "@types/lodash-es": "^4.17.12",
+    "lodash-es": "^4.17.21"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "private"
+  },
+  "workspaces": [
+    "."
+  ],
+  "devDependencies": {
+    "@types/node": "^20.10.4",
+    "typescript": "^5.3.3"
+  }
+}

@@ -5,10 +5,10 @@
 
 ## Protocols
 - [X] SMB (samba)
-- [x] webdav (only for guest). Others have to be implemented with dedicated nginx by user + reverse proxy, and see for recycle
-- [x] SFTP (Only guest). See recycle
-- [x] FTP (only for guest). See recycle
-- [x] NFS (only for guest). See recycle
+- [x] webdav(s) (only for guest). Others have to be implemented with dedicated nginx by user + reverse proxy
+- [x] SFTP (Only guest)
+- [x] FTP(s) (only for guest)
+- [x] NFS (only for guest)
 
 This is a simple app for my needs, that can be improved.
 
@@ -16,16 +16,12 @@ This is a simple app for my needs, that can be improved.
 
 - schema check
 - a good webdav server https://github.com/fstanis/awesome-webdav?tab=readme-ov-file#servers
-- encryption
 - disable ipv6 (option)
 - Add build disableable services to reduce image size and attack surface
 - ftp logrotate
 - webdav list of visible shares depending of the user (or not, like SMB)
 - Galloapp integration to add various config inputs and metrics (on loggings for example)
-- refactory
 - support container restart
-- ensure to deactivate all unused resources by security
-- use supervisor or equiv to handle various processes
 
 ## Example of use
 
