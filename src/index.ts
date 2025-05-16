@@ -350,7 +350,7 @@ const planRunDef = {
             log level = 1 auth_json_audit:3
             max log size = 10
             log file = /var/log/samba/log.smbd
-            min protocol = SMB3
+            min protocol = SMB2
             restrict anonymous = 2
 
             netbios name = ${hostname}
@@ -484,6 +484,10 @@ const planRunDef = {
 
         smbd.stdout.on('data', (rawData) => {
             const data: string = rawData.toString().trim()
+            if (data.includes('ipc$')) {
+                return
+            }
+
             logger.info(data, {channel: 'smb'})
 
             if (data.startsWith('{') && data.endsWith('}')) {
@@ -655,6 +659,18 @@ const planRunDef = {
     configureFtpChannel(item: ConfigureFtpChannelPlanItem) {
         const ftpdWriteHandler = createWriteStream('/etc/vsftpd/vsftpd.conf')
 
+        if (!existsSync(volumePath + '/ftp/ssl')) {
+            mkdirSync(volumePath + '/ftp/ssl', {recursive: true})
+            exec('openssl', [
+                'req', '-new', '-x509', '-days', '365', '-nodes',
+                                '-subj', '/C=CA/ST=QC/O=Gallonas Inc/CN=localhost',
+                '-out', volumePath + '/ftp/ssl/vsftpd.crt.pem',
+                '-keyout', volumePath + '/ftp/ssl/vsftpd.key.pem'
+            ])
+            exec('chmod', ['-R', 'o-rwx,g-rwx', volumePath + '/ftp/ssl'])
+        }
+
+
         for (const storage of item.shares) {
 
             const hasGuestPerm = storage.permissions.some(p => p.guest)
@@ -680,6 +696,13 @@ const planRunDef = {
                     pasv_min_port=2042
                     pasv_max_port=2045
                     force_dot_files=YES
+                    ssl_enable=YES
+                    ssl_tlsv1=YES
+                    ssl_sslv2=YES
+                    ssl_sslv3=YES
+                    allow_anon_ssl=YES
+                    rsa_cert_file=${volumePath}/ftp/ssl/vsftpd.crt.pem
+                    rsa_private_key_file=${volumePath}/ftp/ssl/vsftpd.key.pem
                 `)
             }
             mkdirSync(`/home/${state.guestUser}/${storage.name}`)
@@ -709,7 +732,9 @@ const planRunDef = {
         })
 
         tail.stdout.on('data', (data) => {
-            logger.info(data.toString(), {channel: 'ftp'})
+            data.toString().trim().split('\n').forEach((data: string) => {
+                logger.info(data, {channel: 'ftp'})
+            })
 
             if (data.toString().includes('OK LOGIN')) {
                 logger.info('Increment FTP auth ; success ? ' + true, {channel: 'ftp'})
@@ -774,12 +799,16 @@ const planRunDef = {
             stdio: ['ignore', 'pipe', 'pipe']
         })
 
-        sshd.stdout.on('data', (data) => {
-            logger.info(data.toString(), {channel: 'sftp'})
+        sshd.stdout.on('data', (rawData) => {
+            rawData.toString().trim().split('\n').forEach((data: string) => {
+                logger.info(data, {channel: 'sftp'})
+            })
         })
 
-        sshd.stderr.on('data', (data) => {
-            logger.info(data.toString(), {channel: 'sftp'})
+        sshd.stderr.on('data', (rawData) => {
+            rawData.toString().trim().split('\n').forEach((data: string) => {
+                logger.info(data, {channel: 'sftp'})
+            })
         })
         sshd.on('error', (code) => {
             logger.info('sshd ended ' + code, {channel: 'sftp'})
@@ -790,7 +819,9 @@ const planRunDef = {
         })
 
         tail.stdout.on('data', (data) => {
-            logger.info(data.toString(), {channel: 'sftp'})
+            data.toString().trim().split('\n').forEach((data: string) => {
+                logger.info(data, {channel: 'sftp'})
+            })
 
             if (data.toString().includes('Accepted none for')) {
                 logger.info('Increment SFTP auth ; success ? ' + true, {channel: 'sftp'})
@@ -799,7 +830,9 @@ const planRunDef = {
         })
 
         tail.stderr.on('data', (data) => {
-            logger.info(data.toString(), {channel: 'sftp'})
+            data.toString().trim().split('\n').forEach((data: string) => {
+                logger.info(data, {channel: 'sftp'})
+            })
 
             if (data.toString().includes('Accepted none for')) {
                 logger.info('Increment SFTP auth ; success ? ' + true, {channel: 'sftp'})
@@ -813,7 +846,7 @@ const planRunDef = {
             logger.info('Nginx Tail ended ' + code, {channel: 'sftp'})
         })
 
-        logger.info('vsftpd started')
+        logger.info('sshd started')
     },
     configureNfsChannel(item: ConfigureNfsChannelPlanItem) {
         const nfsWriteHandler = createWriteStream('/etc/exports')
@@ -830,29 +863,39 @@ const planRunDef = {
         }
         nfsWriteHandler.close()
     },
-    startAndMonitorNfsChannel() {
+    async startAndMonitorNfsChannel() {
         const rpcbind = spawn('rpcbind', ['-w'], {
             stdio: ['ignore', 'pipe', 'pipe']
         })
 
         rpcbind.stdout.on('data', (rawData) => {
-            logger.info(rawData.toString(), {channel: 'nfs'})
+            rawData.toString().trim().split('\n').forEach((data: string) => {
+                logger.info(data, {channel: 'nfs'})
+            })
         })
 
         rpcbind.stderr.on('data', (rawData) => {
-            logger.info(rawData.toString(), {channel: 'nfs'})
+            rawData.toString().trim().split('\n').forEach((data: string) => {
+                logger.info(data, {channel: 'nfs'})
+            })
         })
+
+        await once(rpcbind, 'exit')
 
         const rpcinfo = spawn('rpcinfo', {
             stdio: ['ignore', 'pipe', 'pipe']
         })
 
         rpcinfo.stdout.on('data', (rawData) => {
-            logger.info(rawData.toString(), {channel: 'nfs'})
+            rawData.toString().trim().split('\n').forEach((data: string) => {
+                logger.info(data, {channel: 'nfs'})
+            })
         })
 
         rpcinfo.stderr.on('data', (rawData) => {
-            logger.info(rawData.toString(), {channel: 'nfs'})
+            rawData.toString().trim().split('\n').forEach((data: string) => {
+                logger.info(data, {channel: 'nfs'})
+            })
         })
 
         const rpcnfsd = spawn('rpc.nfsd', ['--debug', '8', '--no-udp', '-U'], {
@@ -860,11 +903,15 @@ const planRunDef = {
         })
 
         rpcnfsd.stdout.on('data', (rawData) => {
-            logger.info(rawData.toString(), {channel: 'nfs'})
+            rawData.toString().trim().split('\n').forEach((data: string) => {
+                logger.info(data, {channel: 'nfs'})
+            })
         })
 
         rpcnfsd.stderr.on('data', (rawData) => {
-            logger.info(rawData.toString(), {channel: 'nfs'})
+            rawData.toString().trim().split('\n').forEach((data: string) => {
+                logger.info(data, {channel: 'nfs'})
+            })
         })
 
         const exportfs = spawn('exportfs', ['-rv'], {
@@ -872,11 +919,15 @@ const planRunDef = {
         })
 
         exportfs.stdout.on('data', (rawData) => {
-            logger.info(rawData.toString(), {channel: 'nfs'})
+            rawData.toString().trim().split('\n').forEach((data: string) => {
+                logger.info(data, {channel: 'nfs'})
+            })
         })
 
         exportfs.stderr.on('data', (rawData) => {
-            logger.info(rawData.toString(), {channel: 'nfs'})
+            rawData.toString().trim().split('\n').forEach((data: string) => {
+                logger.info(data, {channel: 'nfs'})
+            })
         })
 
         const rpcmountd = spawn('rpc.mountd', ['--debug', 'all', '--no-udp', '--no-nfs-version', '2', '-F'], {
@@ -884,12 +935,18 @@ const planRunDef = {
         })
 
         rpcmountd.stdout.on('data', (rawData) => {
-            logger.info(rawData.toString(), {channel: 'nfs'})
+            rawData.toString().trim().split('\n').forEach((data: string) => {
+                logger.info(data, {channel: 'nfs'})
+            })
         })
 
         rpcmountd.stderr.on('data', (rawData) => {
-            logger.info(rawData.toString(), {channel: 'nfs'})
+            rawData.toString().trim().split('\n').forEach((data: string) => {
+                logger.info(data, {channel: 'nfs'})
+            })
         })
+
+        logger.info('NFS started')
     }
 }
 
