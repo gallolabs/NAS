@@ -2,13 +2,14 @@
     <img width="300" src="https://raw.githubusercontent.com/gallolabs/NAS/main/logo_w300.jpeg">
   <h1 align="center">Gallo NAS</h1>
 </p>
+<h2 align="center">SAMBA - WEBDAV(s) - SFTP - FTP(s) - NFS</h2>
 
 ## Protocols
 - [X] SMB (samba)
-- [x] webdav(s) (only for guest). Others have to be implemented with dedicated nginx by user + reverse proxy
-- [x] SFTP (Only guest)
-- [x] FTP(s) (only for guest)
-- [x] NFS (only for guest)
+- [x] webdav(s) (only for guest for this first implementation). Others have to be implemented with dedicated nginx by user + reverse proxy
+- [x] SFTP (Only guest for this first implementation)
+- [x] FTP(s) (only for guest for this first implementation)
+- [x] NFS (only for guest for this first implementation)
 
 This is a simple app for my needs, that can be improved.
 
