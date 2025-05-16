@@ -8,6 +8,12 @@ import { existsSync } from 'node:fs'
 
 const volumePath = '/var/lib/nas'
 
+const logger = {
+    info(msg: string, metadata?: any) {
+        console.log(JSON.stringify({message: msg, ...metadata}))
+    }
+}
+
 function exec(cmd: string, args: string[] = [], input?: any) {
     const {status, stderr} = spawnSync(cmd, args, {input})
 
@@ -103,6 +109,20 @@ interface StartAndMonitorWebdavChannelPlanItem {
     action: 'startAndMonitorWebdavChannel'
 }
 
+interface ConfigureFtpChannelPlanItem {
+    action: 'configureFtpChannel'
+    shares: UserConfig['shares']
+}
+
+interface ConfigureSftpChannelPlanItem {
+    action: 'configureSftpChannel'
+    shares: UserConfig['shares']
+}
+
+interface ConfigureNfsChannelPlanItem {
+    action: 'configureNfsChannel'
+    shares: UserConfig['shares']
+}
 
 type PlanItem = CreateGroupPlanItem
     | CreateUserPlanItem
@@ -112,6 +132,9 @@ type PlanItem = CreateGroupPlanItem
     | RegisterUserPlanItem
     | ConfigureWebdavChannelPlanItem
     | StartAndMonitorWebdavChannelPlanItem
+    | ConfigureSftpChannelPlanItem
+    | ConfigureFtpChannelPlanItem
+    | ConfigureNfsChannelPlanItem
 
 
 // Define a plan of execution and state
@@ -262,13 +285,13 @@ const state: State = {
 const planRunDef = {
     registerUser(item: RegisterUserPlanItem) {
         const user = omit(item, 'action')
-        console.log('Registering user ' + user.name + ' with groups', user.primaryGroup, user.secondaryGroups)
+        logger.info('Registering user ' + user.name + ' with groups ' + user.primaryGroup + ' ; ' + user.secondaryGroups)
         state.users.push(user)
     },
     createUser(item: CreateUserPlanItem) {
         const user = omit(item, 'action')
 
-        console.log('Creating user ' + user.name + ' with groups', user.primaryGroup, user.secondaryGroups)
+        logger.info('Creating user ' + user.name + ' with groups ' + user.primaryGroup + ' ; ' + user.secondaryGroups)
 
         exec('adduser', [
             '-u', user.id.toString(),
@@ -291,7 +314,7 @@ const planRunDef = {
     createGroup(item: CreateGroupPlanItem) {
         const group = omit(item, 'action')
 
-        console.log('Creating group ' + group.name)
+        logger.info('Creating group ' + group.name)
         exec('addgroup', ['-g', group.id.toString(), '-S', group.name])
 
         state.groups.push(group)
@@ -443,14 +466,14 @@ const planRunDef = {
         const nmdb = spawn('nmbd', ['-D'])
 
         nmdb.stdout.on('data', (data) => {
-            console.log('data from nmdb', data.toString())
+            logger.info(data.toString(), {channel: 'smb'})
         })
 
         nmdb.stderr.on('data', (data) => {
-            console.log('data from nmdb', data.toString())
+            logger.info(data.toString(), {channel: 'smb'})
         })
         nmdb.on('error', (code) => {
-            console.log('nmdb ended ' + code)
+            logger.info('nmdb ended ' + code, {channel: 'smb'})
         })
 
         await once(nmdb, 'exit')
@@ -461,31 +484,30 @@ const planRunDef = {
 
         smbd.stdout.on('data', (rawData) => {
             const data: string = rawData.toString().trim()
-            console.log('data stdout from smbd', data)
+            logger.info(data, {channel: 'smb'})
 
             if (data.startsWith('{') && data.endsWith('}')) {
                 const parsed = JSON.parse(data)
 
                 if (parsed.type === 'Authentication') {
                     const success = parsed.Authentication.status === 'NT_STATUS_OK'
-                    console.log('Increment SMB auth ; success ?', success)
+                    logger.info('Increment SMB auth ; success ? ' + success, {channel: 'smb'})
                 }
             }
         })
 
-
         smbd.stderr.on('data', (data) => {
-            console.log('data err from smbd', data.toString())
+            logger.info(data.toString(), {channel: 'smb'})
         })
         smbd.on('error', (code) => {
-            console.log('smbd ended ' + code)
+            logger.info('smbd ended ' + code, {channel: 'smb'})
         })
 
         smbd.on('close', (code) => {
-            console.log('smbd ended ' + code)
+            logger.info('smbd ended ' + code, {channel: 'smb'})
         })
 
-        console.log('Samba started')
+        logger.info('Samba started')
     },
     configureWebdavChannel(item: ConfigureWebdavChannelPlanItem) {
         const nginxGuestWriteHandler = createWriteStream('/etc/nginx/nginx.conf')
@@ -555,6 +577,7 @@ const planRunDef = {
                 fancyindex on;
                 fancyindex_show_dotfiles on;
         `)
+// // htpasswd -bc /etc/nginx/htpasswd $USERNAME $PASSWORD
 
         for (const storage of item.shares) {
             const hasGuestPerm = storage.permissions.some(p => p.guest)
@@ -593,15 +616,15 @@ const planRunDef = {
         })
 
         nginx.stdout.on('data', (data) => {
-            console.log('data from nginx', data.toString())
+            logger.info(data.toString(), {channel: 'webdav'})
         })
 
 
         nginx.stderr.on('data', (data) => {
-            console.log('data from nginx', data.toString())
+            logger.info(data.toString(), {channel: 'webdav'})
         })
         nginx.on('error', (code) => {
-            console.log('nginx ended ' + code)
+            logger.info('nginx ended ' + code, {channel: 'webdav'})
         })
 
         const tail = spawn('tail', ['-q', '-n', '+1', '-F', '/var/log/nginx/*.log'],{
@@ -610,152 +633,272 @@ const planRunDef = {
         })
 
         tail.stdout.on('data', (data) => {
-            console.log('data from nginx tail', data.toString())
+            logger.info(data.toString(), {channel: 'webdav'})
         })
 
 
         tail.stderr.on('data', (data) => {
-            console.log('data from nginx tail', data.toString())
+            logger.info(data.toString(), {channel: 'webdav'})
         })
         tail.on('error', (code) => {
-            console.log('Nginx Tail ended ' + code)
+            logger.info('Nginx Tail ended ' + code, {channel: 'webdav'})
         })
 
 
         tail.on('exit', (code) => {
-            console.log('Nginx Tail ended ' + code)
+            logger.info('Nginx Tail ended ' + code, {channel: 'webdav'})
         })
 
-        console.log('Nginx started')
+        logger.info('Nginx started')
 
+    },
+    configureFtpChannel(item: ConfigureFtpChannelPlanItem) {
+        const ftpdWriteHandler = createWriteStream('/etc/vsftpd/vsftpd.conf')
+
+        for (const storage of item.shares) {
+
+            const hasGuestPerm = storage.permissions.some(p => p.guest)
+
+            if (hasGuestPerm) {
+                ftpdWriteHandler.write(`
+                    listen=YES
+                    anonymous_enable=YES
+                    anon_upload_enable=NO
+                    anon_mkdir_write_enable=NO
+                    anon_other_write_enable=NO
+                    anon_world_readable_only=YES
+                    anon_root=/home/${state.guestUser}
+                    setproctitle_enable=YES
+                    seccomp_sandbox=NO
+                    vsftpd_log_file=/var/log/sftpd.log
+                    ftp_username=${state.guestUser}
+                    guest_username=${state.guestUser}
+                    dual_log_enable=YES
+                    no_anon_password=Yes
+                    log_ftp_protocol=NO
+                    pasv_address=172.25.217.80
+                    pasv_min_port=2042
+                    pasv_max_port=2045
+                    force_dot_files=YES
+                `)
+            }
+            mkdirSync(`/home/${state.guestUser}/${storage.name}`)
+            exec('mount', ['--bind', storage.path, `/home/${state.guestUser}/${storage.name}`])
+        }
+        ftpdWriteHandler.close()
+    },
+    startAndMonitorFtpChannel() {
+        exec('touch', ['/var/log/sftpd.log'])
+        const vsftpd = spawn('vsftpd', ['/etc/vsftpd/vsftpd.conf'],{
+            stdio: ['ignore', 'pipe', 'pipe']
+        })
+
+        vsftpd.stdout.on('data', (data) => {
+            logger.info(data.toString(), {channel: 'ftp'})
+        })
+
+        vsftpd.stderr.on('data', (data) => {
+            logger.info(data.toString(), {channel: 'ftp'})
+        })
+        vsftpd.on('error', (code) => {
+            logger.info('vsftpd ended ' + code, {channel: 'ftp'})
+        })
+
+        const tail = spawn('tail', ['-q', '-n', '+1', '-F', '/var/log/sftpd.log'],{
+            stdio: ['ignore', 'pipe', 'pipe']
+        })
+
+        tail.stdout.on('data', (data) => {
+            logger.info(data.toString(), {channel: 'ftp'})
+
+            if (data.toString().includes('OK LOGIN')) {
+                logger.info('Increment FTP auth ; success ? ' + true, {channel: 'ftp'})
+            }
+        })
+
+        tail.stderr.on('data', (data) => {
+            logger.info(data.toString(), {channel: 'ftp'})
+
+            if (data.toString().includes('OK LOGIN')) {
+                logger.info('Increment FTP auth ; success ? ' + true, {channel: 'ftp'})
+            }
+        })
+        tail.on('error', (code) => {
+            logger.info('Nginx Tail ended ' + code, {channel: 'ftp'})
+        })
+
+        tail.on('exit', (code) => {
+            logger.info('Nginx Tail ended ' + code, {channel: 'ftp'})
+        })
+
+        logger.info('vsftpd started')
+    },
+    configureSftpChannel(item: ConfigureSftpChannelPlanItem) {
+        const sftpWriteHandler = createWriteStream('/etc/ssh/sshd_config')
+        for (const storage of item.shares) {
+            const hasGuestPerm = storage.permissions.some(p => p.guest)
+
+            if (hasGuestPerm) {
+
+                if (!existsSync('/var/lib/nas/ssh')) {
+                    mkdirSync('/var/lib/nas/ssh')
+                    exec('sh', ['-c', "ssh-keygen -t ed25519 -f /var/lib/nas/ssh/ssh_host_ed25519_key -N '' && chmod 600 /var/lib/nas/ssh/ssh_host_ed25519_key"])
+                    exec('sh', ['-c', "ssh-keygen -t rsa -b 4096 -f /var/lib/nas/ssh/ssh_host_rsa_key -N '' && chmod 600 /var/lib/nas/ssh/ssh_host_rsa_key"])
+                }
+
+                sftpWriteHandler.write(`
+                    Protocol 2
+                    HostKey /var/lib/nas/ssh/ssh_host_ed25519_key
+                    HostKey /var/lib/nas/ssh/ssh_host_rsa_key
+                    Port 22
+                    PermitRootLogin no
+                    X11Forwarding no
+                    AllowTcpForwarding no
+                    UseDNS no
+                    AllowUsers ${state.guestUser}
+
+                    Subsystem sftp internal-sftp
+                    ForceCommand internal-sftp
+                    ChrootDirectory %h
+                    PermitEmptyPasswords yes
+                `)
+            }
+        }
+        sftpWriteHandler.close()
+        // exec('sh', ['-c', 'echo ssh >> /etc/securetty'])
+    },
+    startAndMonitorSftpChannel() {
+        exec('touch', ['/var/log/sshd.log'])
+
+        const sshd = spawn('/usr/sbin/sshd', ['-D', '-E', '/var/log/sshd.log'],{
+            stdio: ['ignore', 'pipe', 'pipe']
+        })
+
+        sshd.stdout.on('data', (data) => {
+            logger.info(data.toString(), {channel: 'sftp'})
+        })
+
+        sshd.stderr.on('data', (data) => {
+            logger.info(data.toString(), {channel: 'sftp'})
+        })
+        sshd.on('error', (code) => {
+            logger.info('sshd ended ' + code, {channel: 'sftp'})
+        })
+
+        const tail = spawn('tail', ['-q', '-n', '+1', '-F', '/var/log/sshd.log'],{
+            stdio: ['ignore', 'pipe', 'pipe']
+        })
+
+        tail.stdout.on('data', (data) => {
+            logger.info(data.toString(), {channel: 'sftp'})
+
+            if (data.toString().includes('Accepted none for')) {
+                logger.info('Increment SFTP auth ; success ? ' + true, {channel: 'sftp'})
+            }
+
+        })
+
+        tail.stderr.on('data', (data) => {
+            logger.info(data.toString(), {channel: 'sftp'})
+
+            if (data.toString().includes('Accepted none for')) {
+                logger.info('Increment SFTP auth ; success ? ' + true, {channel: 'sftp'})
+            }
+        })
+        tail.on('error', (code) => {
+            logger.info('Nginx Tail ended ' + code, {channel: 'sftp'})
+        })
+
+        tail.on('exit', (code) => {
+            logger.info('Nginx Tail ended ' + code, {channel: 'sftp'})
+        })
+
+        logger.info('vsftpd started')
+    },
+    configureNfsChannel(item: ConfigureNfsChannelPlanItem) {
+        const nfsWriteHandler = createWriteStream('/etc/exports')
+        for (const storage of item.shares) {
+            const hasGuestPerm = storage.permissions.some(p => p.guest)
+
+            if (hasGuestPerm) {
+
+                nfsWriteHandler.write(`
+                    ${storage.path} *(ro,no_subtree_check)
+                `)
+
+            }
+        }
+        nfsWriteHandler.close()
+    },
+    startAndMonitorNfsChannel() {
+        const rpcbind = spawn('rpcbind', ['-w'], {
+            stdio: ['ignore', 'pipe', 'pipe']
+        })
+
+        rpcbind.stdout.on('data', (rawData) => {
+            logger.info(rawData.toString(), {channel: 'nfs'})
+        })
+
+        rpcbind.stderr.on('data', (rawData) => {
+            logger.info(rawData.toString(), {channel: 'nfs'})
+        })
+
+        const rpcinfo = spawn('rpcinfo', {
+            stdio: ['ignore', 'pipe', 'pipe']
+        })
+
+        rpcinfo.stdout.on('data', (rawData) => {
+            logger.info(rawData.toString(), {channel: 'nfs'})
+        })
+
+        rpcinfo.stderr.on('data', (rawData) => {
+            logger.info(rawData.toString(), {channel: 'nfs'})
+        })
+
+        const rpcnfsd = spawn('rpc.nfsd', ['--debug', '8', '--no-udp', '-U'], {
+            stdio: ['ignore', 'pipe', 'pipe']
+        })
+
+        rpcnfsd.stdout.on('data', (rawData) => {
+            logger.info(rawData.toString(), {channel: 'nfs'})
+        })
+
+        rpcnfsd.stderr.on('data', (rawData) => {
+            logger.info(rawData.toString(), {channel: 'nfs'})
+        })
+
+        const exportfs = spawn('exportfs', ['-rv'], {
+            stdio: ['ignore', 'pipe', 'pipe']
+        })
+
+        exportfs.stdout.on('data', (rawData) => {
+            logger.info(rawData.toString(), {channel: 'nfs'})
+        })
+
+        exportfs.stderr.on('data', (rawData) => {
+            logger.info(rawData.toString(), {channel: 'nfs'})
+        })
+
+        const rpcmountd = spawn('rpc.mountd', ['--debug', 'all', '--no-udp', '--no-nfs-version', '2', '-F'], {
+            stdio: ['ignore', 'pipe', 'pipe']
+        })
+
+        rpcmountd.stdout.on('data', (rawData) => {
+            logger.info(rawData.toString(), {channel: 'nfs'})
+        })
+
+        rpcmountd.stderr.on('data', (rawData) => {
+            logger.info(rawData.toString(), {channel: 'nfs'})
+        })
     }
 }
 
 async function runPlan(plan: PlanItem[]) {
     for(const planItem of plan) {
-        if (!planRunDef[planItem.action]) {
-            console.warn(planItem.action + ' has no handler')
-            continue
-        }
         // @ts-ignore
         await planRunDef[planItem.action](planItem)
     }
 }
 
 const plan = computePlan(config)
-console.log(plan)
 await runPlan(plan)
-console.log(state)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-//
-// const ftpdWriteHandler = createWriteStream('/etc/vsftpd/vsftpd.conf')
-// const sftpWriteHandler = createWriteStream('/etc/ssh/sshd_config')
-// const nfsWriteHandler = createWriteStream('/etc/exports')
-
-
-
-// // htpasswd -bc /etc/nginx/htpasswd $USERNAME $PASSWORD
-
-// ;(config.shares || []).forEach(storage => {
-
-//     if (storage.channels.includes('ftp')) {
-//         const hasGuestPerm = storage.permissions.some(p => p.guest)
-
-//         if (hasGuestPerm) {
-//             ftpdWriteHandler.write(`
-//                 listen=YES
-//                 anonymous_enable=YES
-//                 anon_upload_enable=NO
-//                 anon_mkdir_write_enable=NO
-//                 anon_other_write_enable=NO
-//                 anon_world_readable_only=YES
-//                 anon_root=/home/${guestUser}
-//                 setproctitle_enable=YES
-//                 seccomp_sandbox=NO
-//                 vsftpd_log_file=/var/log/sftpd.log
-//                 ftp_username=${guestUser}
-//                 guest_username=${guestUser}
-//                 dual_log_enable=YES
-//                 no_anon_password=Yes
-//                 log_ftp_protocol=NO
-//                 pasv_address=172.25.217.80
-//                 pasv_min_port=2042
-//                 pasv_max_port=2045
-//                 force_dot_files=YES
-//             `)
-//         }
-
-//         mkdirSync(`/home/${guestUser}/${storage.name}`)
-//         exec('mount', ['--bind', storage.path, `/home/${guestUser}/${storage.name}`])
-//     }
-
-//     if (storage.channels.includes('sftp')) {
-
-//         const hasGuestPerm = storage.permissions.some(p => p.guest)
-
-//         if (hasGuestPerm) {
-
-//             if (!existsSync('/var/lib/nas/ssh')) {
-//                 mkdirSync('/var/lib/nas/ssh')
-//                 exec('sh', ['-c', "ssh-keygen -t ed25519 -f /var/lib/nas/ssh/ssh_host_ed25519_key -N '' && chmod 600 /var/lib/nas/ssh/ssh_host_ed25519_key"])
-//                 exec('sh', ['-c', "ssh-keygen -t rsa -b 4096 -f /var/lib/nas/ssh/ssh_host_rsa_key -N '' && chmod 600 /var/lib/nas/ssh/ssh_host_rsa_key"])
-//             }
-
-//             sftpWriteHandler.write(`
-//                 Protocol 2
-//                 HostKey /var/lib/nas/ssh/ssh_host_ed25519_key
-//                 HostKey /var/lib/nas/ssh/ssh_host_rsa_key
-//                 Port 22
-//                 PermitRootLogin no
-//                 X11Forwarding no
-//                 AllowTcpForwarding no
-//                 UseDNS no
-//                 AllowUsers ${guestUser}
-
-//                 Subsystem sftp internal-sftp
-//                 ForceCommand internal-sftp
-//                 ChrootDirectory %h
-//                 PermitEmptyPasswords yes
-//             `)
-//         }
-//         // exec('sh', ['-c', 'echo ssh >> /etc/securetty'])
-//     }
-
-//     if (storage.channels.includes('nfs')) {
-
-//         const hasGuestPerm = storage.permissions.some(p => p.guest)
-
-//         if (hasGuestPerm) {
-
-//             nfsWriteHandler.write(`
-//                 ${storage.path} *(ro,no_subtree_check)
-//             `)
-
-//         }
-//     }
-
-// })
-
-// ftpdWriteHandler.close()
-// nfsWriteHandler.close()

@@ -13,8 +13,6 @@ RUN rm /etc/nginx/http.d/* /etc/nginx/nginx.conf /etc/vsftpd/vsftpd.conf /etc/ss
 
 WORKDIR /app
 
-
-
 COPY package.json package-lock.json ./
 
 RUN npm i
