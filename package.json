@@ -10,6 +10,7 @@
   "type": "module",
   "license": "ISC",
   "dependencies": {
+    "@sinclair/typebox": "^0.34.11",
     "@types/lodash-es": "^4.17.12",
     "lodash-es": "^4.17.21"
   },

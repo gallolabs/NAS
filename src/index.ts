@@ -5,6 +5,7 @@ import {hostname as getHostname} from 'os'
 import {omit, flatten, uniq} from 'lodash-es'
 import { once } from 'node:events'
 import { existsSync } from 'node:fs'
+import { Type, Static } from '@sinclair/typebox'
 
 const volumePath = '/var/lib/nas'
 
@@ -22,47 +23,60 @@ function exec(cmd: string, args: string[] = [], input?: any) {
     }
 }
 
-interface UserConfig {
-  groups: Array<{
-      name: string
-      id: number
-  }>
-  guestUser?: string
-  users: Array<{
-      name: string,
-      id: number,
-      groups?: string[],
-      password?: string
-  }>
-  shares: Array<{
-      channels: Array<"smb" | "webdav" | "ftp" | "sftp" | "nfs">
-      name: string
-      path: string
-      visible?: boolean
-      uMasks?: {
-        allowedForFiles: string
-        allowedForDirs: string
-        forcedForFiles: string
-        forcedForDirs: string
-        recycleDir: string
-      },
-      permissions: Array<{
-          mode: string
-          users?: string[]
-          groups?: string[]
-          guest?: boolean
-      }>
-      smbOpts?: {
-        recycle?: boolean | { path?: boolean }
-      }
-  }>
-  smbOpts?: {
-    visible?: boolean
-    encryption?: boolean
-  }
-  workgroup?: string
-  encryption?: boolean
-}
+const userConfigSchema = Type.Object({
+    guestUser: Type.Optional(Type.String()),
+    groups: Type.Array(Type.Object({
+        name: Type.String(),
+        id: Type.Number()
+    })),
+    users: Type.Array(Type.Object({
+        name: Type.String(),
+        id: Type.Number(),
+        groups: Type.Optional(Type.Array(Type.String())),
+        password: Type.Optional(Type.String())
+    })),
+    smbOpts: Type.Optional(Type.Object({
+        visible: Type.Optional(Type.Boolean()),
+        encryption: Type.Optional(Type.Boolean())
+    })),
+    workgroup: Type.Optional(Type.String()),
+    encryption: Type.Optional(Type.Boolean()),
+    shares: Type.Array(Type.Object({
+        channels: Type.Array(Type.Union([
+            Type.Literal('smb'),
+            Type.Literal('webdav'),
+            Type.Literal('ftp'),
+            Type.Literal('sftp'),
+            Type.Literal('nfs')
+        ])),
+        name: Type.String(),
+        path: Type.String(),
+        visible: Type.Optional(Type.Boolean()),
+        uMasks: Type.Optional(Type.Object({
+            allowedForFiles: Type.String(),
+            allowedForDirs: Type.String(),
+            forcedForFiles: Type.String(),
+            forcedForDirs: Type.String(),
+            recycleDir: Type.String(),
+        })),
+        permissions: Type.Array(Type.Object({
+            mode: Type.String(),
+            users: Type.Optional(Type.Array(Type.String())),
+            groups: Type.Optional(Type.Array(Type.String())),
+            guest: Type.Optional(Type.Boolean())
+        })),
+        smbOpts: Type.Optional(Type.Object({
+            recycle: Type.Optional(Type.Union([
+                Type.Boolean(),
+                Type.Object({
+                    path: Type.Optional(Type.String())
+                })
+            ]))
+        }))
+    }))
+})
+
+type UserConfig = Static<typeof userConfigSchema>
 
 const config: UserConfig = JSON.parse(process.env.CONFIG || '')
 const hostname = getHostname()
