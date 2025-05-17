@@ -4,10 +4,19 @@ import { createWriteStream, mkdirSync/*, existsSync*/ } from 'fs'
 import {hostname as getHostname} from 'os'
 import {omit, flatten, uniq} from 'lodash-es'
 import { once } from 'node:events'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { Type, Static } from '@sinclair/typebox'
+import { dirname } from 'node:path'
 
 const volumePath = '/var/lib/nas'
+const stateFilePath = '/var/local/nas/state.json'
+const ac = new AbortController
+
+mkdirSync(dirname(stateFilePath), {recursive: true})
+
+function getPersistedPath(path: string): string {
+    return `${volumePath}/${path}`
+}
 
 const logger = {
     info(msg: string, metadata?: any) {
@@ -150,6 +159,28 @@ type PlanItem = CreateGroupPlanItem
     | ConfigureFtpChannelPlanItem
     | ConfigureNfsChannelPlanItem
 
+const channelsInfos: Record<string, {suffix: string, needHomeMount: boolean}> = {
+    "smb": {
+        suffix: 'Smb',
+        needHomeMount: false
+    },
+    "webdav": {
+        suffix: "Webdav",
+        needHomeMount: false
+    },
+    "ftp": {
+        suffix: 'Ftp',
+        needHomeMount: true
+    },
+    "sftp": {
+        suffix: 'Sftp',
+        needHomeMount: true
+    },
+    "nfs": {
+        suffix: 'Nfs',
+        needHomeMount: false
+    }
+}
 
 // Define a plan of execution and state
 function computePlan({groups, users, guestUser, shares}: UserConfig) {
@@ -157,6 +188,9 @@ function computePlan({groups, users, guestUser, shares}: UserConfig) {
     const plan: PlanItem[] = []
 
     for (const group of groups) {
+        if (state.groups.some(gr => gr.name === group.name)) {
+            continue
+        }
         plan.push({
             action: 'createGroup',
             ...group
@@ -169,6 +203,10 @@ function computePlan({groups, users, guestUser, shares}: UserConfig) {
                 throw new Error(`Unknown group ${groupName} for user ${user.name}`)
             }
         })
+
+        if (state.users.some(usr => usr.name === user.name)) {
+            continue
+        }
 
         plan.push({
             action: 'createUser',
@@ -191,21 +229,23 @@ function computePlan({groups, users, guestUser, shares}: UserConfig) {
         //}
     }
 
-    if (guestUser === 'nobody') {
+    if (!state.guestUser) {
+        if (guestUser === 'nobody') {
+            plan.push({
+                action: 'registerUser',
+                name: 'nobody',
+                id: 65534,
+                primaryGroup: 'nobody',
+                secondaryGroups: [],
+                password: null
+            })
+        }
+
         plan.push({
-            action: 'registerUser',
-            name: 'nobody',
-            id: 65534,
-            primaryGroup: 'nobody',
-            secondaryGroups: [],
-            password: null
+            action: 'defineGuestUser',
+            guestUser: guestUser
         })
     }
-
-    plan.push({
-        action: 'defineGuestUser',
-        guestUser: guestUser
-    })
 
     for (const share of shares) {
         share.permissions.forEach(permission => {
@@ -220,29 +260,6 @@ function computePlan({groups, users, guestUser, shares}: UserConfig) {
                 }
             })
         })
-    }
-
-    const channelsInfos: Record<string, {suffix: string, needHomeMount: boolean}> = {
-        "smb": {
-            suffix: 'Smb',
-            needHomeMount: false
-        },
-        "webdav": {
-            suffix: "Webdav",
-            needHomeMount: false
-        },
-        "ftp": {
-            suffix: 'Ftp',
-            needHomeMount: true
-        },
-        "sftp": {
-            suffix: 'Sftp',
-            needHomeMount: true
-        },
-        "nfs": {
-            suffix: 'Nfs',
-            needHomeMount: false
-        }
     }
 
     const sharesByChannels: Record<string, UserConfig['shares']> = Object.keys(channelsInfos).reduce((reduced, channelName) => {
@@ -267,6 +284,10 @@ function computePlan({groups, users, guestUser, shares}: UserConfig) {
         //     })
         // }
 
+        if (state.channels.initialized) {
+            continue
+        }
+
         plan.push({
             action: `configure${channelInfos.suffix}Channel` as string,
             shares: sharesForChannel
@@ -288,13 +309,21 @@ interface State {
     groups: Omit<CreateGroupPlanItem, 'action'>[]
     users: Omit<CreateUserPlanItem, 'action'>[]
     guestUser: string | null
+    channels: {
+        initialized: boolean
+    }
 }
 
-const state: State = {
-    groups: [],
-    users: [],
-    guestUser: null
-}
+const state: State = existsSync(stateFilePath)
+    ? JSON.parse(readFileSync(stateFilePath, {encoding: 'utf8'}))
+    : {
+        groups: [],
+        users: [],
+        guestUser: null,
+        channels: {
+            initialized: false
+        }
+    }
 
 const planRunDef = {
     registerUser(item: RegisterUserPlanItem) {
@@ -477,7 +506,7 @@ const planRunDef = {
         writeHandler.close()
     },
     async startAndMonitorSmbChannel(_item: StartAndMonitorSmbChannelPlanItem) {
-        const nmdb = spawn('nmbd', ['-D'])
+        const nmdb = spawn('nmbd', ['-D'], {signal: ac.signal})
 
         nmdb.stdout.on('data', (data) => {
             logger.info(data.toString(), {channel: 'smb'})
@@ -493,7 +522,8 @@ const planRunDef = {
         await once(nmdb, 'exit')
 
         const smbd = spawn('smbd', ['--debug-stdout', '-F', '--no-process-group', '--configfile=/etc/samba/smb.conf'], {
-            stdio: ['ignore', 'pipe', 'pipe']
+            stdio: ['ignore', 'pipe', 'pipe'],
+            signal: ac.signal
         })
 
         smbd.stdout.on('data', (rawData) => {
@@ -532,16 +562,16 @@ const planRunDef = {
 
         const guestGroup = state.users.find(user => user.name === state.guestUser)!.primaryGroup
 
-        if (!existsSync(volumePath + '/webdav/ssl')) {
-            mkdirSync(volumePath + '/webdav/ssl', {recursive: true})
+        if (!existsSync(getPersistedPath('webdav/ssl'))) {
+            mkdirSync(getPersistedPath('webdav/ssl'), {recursive: true})
             exec('openssl', [
                 'req', '-x509', '-nodes', '-days', '365',
                 '-subj', '/C=CA/ST=QC/O=Gallonas Inc/CN=localhost',
                 '-newkey', 'rsa:2048',
-                '-keyout', volumePath + '/webdav/ssl/nginx.key',
-                '-out', volumePath + '/webdav/ssl/nginx.crt'
+                '-keyout', getPersistedPath('webdav/ssl/nginx.key'),
+                '-out', getPersistedPath('webdav/ssl/nginx.crt')
             ])
-            exec('chmod', ['-R', 'o-rwx,g-rwx', volumePath + '/webdav/ssl'])
+            exec('chmod', ['-R', 'o-rwx,g-rwx', getPersistedPath('webdav/ssl')])
         }
 
         nginxGuestWriteHandler.write(`
@@ -584,8 +614,8 @@ const planRunDef = {
                 listen 80;
                 listen              443 ssl;
 
-                ssl_certificate     ${volumePath}/webdav/ssl/nginx.crt;
-                ssl_certificate_key ${volumePath}/webdav/ssl/nginx.key;
+                ssl_certificate     ${getPersistedPath('webdav/ssl/nginx.crt')};
+                ssl_certificate_key ${getPersistedPath('webdav/ssl/nginx.key')};
 
                 client_max_body_size 0;
                 charset utf-8;
@@ -630,7 +660,8 @@ const planRunDef = {
     startAndMonitorWebdavChannel(_item: StartAndMonitorWebdavChannelPlanItem) {
         exec('touch', ['/var/log/nginx/error.log', '/var/log/nginx/access.log'])
         const nginx = spawn('nginx', ['-c', '/etc/nginx/nginx.conf', '-g', 'daemon off;'],{
-            stdio: ['ignore', 'pipe', 'pipe']
+            stdio: ['ignore', 'pipe', 'pipe'],
+            signal: ac.signal
         })
 
         nginx.stdout.on('data', (data) => {
@@ -647,7 +678,8 @@ const planRunDef = {
 
         const tail = spawn('tail', ['-q', '-n', '+1', '-F', '/var/log/nginx/*.log'],{
             stdio: ['ignore', 'pipe', 'pipe'],
-            shell: true
+            shell: true,
+            signal: ac.signal
         })
 
         tail.stdout.on('data', (data) => {
@@ -673,15 +705,15 @@ const planRunDef = {
     configureFtpChannel(item: ConfigureFtpChannelPlanItem) {
         const ftpdWriteHandler = createWriteStream('/etc/vsftpd/vsftpd.conf')
 
-        if (!existsSync(volumePath + '/ftp/ssl')) {
-            mkdirSync(volumePath + '/ftp/ssl', {recursive: true})
+        if (!existsSync(getPersistedPath('ftp/ssl'))) {
+            mkdirSync(getPersistedPath('ftp/ssl'), {recursive: true})
             exec('openssl', [
                 'req', '-new', '-x509', '-days', '365', '-nodes',
                                 '-subj', '/C=CA/ST=QC/O=Gallonas Inc/CN=localhost',
-                '-out', volumePath + '/ftp/ssl/vsftpd.crt.pem',
-                '-keyout', volumePath + '/ftp/ssl/vsftpd.key.pem'
+                '-out', getPersistedPath('ftp/ssl/vsftpd.crt.pem'),
+                '-keyout', getPersistedPath('ftp/ssl/vsftpd.key.pem')
             ])
-            exec('chmod', ['-R', 'o-rwx,g-rwx', volumePath + '/ftp/ssl'])
+            exec('chmod', ['-R', 'o-rwx,g-rwx', getPersistedPath('ftp/ssl')])
         }
 
 
@@ -727,7 +759,8 @@ const planRunDef = {
     startAndMonitorFtpChannel() {
         exec('touch', ['/var/log/sftpd.log'])
         const vsftpd = spawn('vsftpd', ['/etc/vsftpd/vsftpd.conf'],{
-            stdio: ['ignore', 'pipe', 'pipe']
+            stdio: ['ignore', 'pipe', 'pipe'],
+            signal: ac.signal
         })
 
         vsftpd.stdout.on('data', (data) => {
@@ -742,7 +775,8 @@ const planRunDef = {
         })
 
         const tail = spawn('tail', ['-q', '-n', '+1', '-F', '/var/log/sftpd.log'],{
-            stdio: ['ignore', 'pipe', 'pipe']
+            stdio: ['ignore', 'pipe', 'pipe'],
+            signal: ac.signal
         })
 
         tail.stdout.on('data', (data) => {
@@ -810,7 +844,8 @@ const planRunDef = {
         exec('touch', ['/var/log/sshd.log'])
 
         const sshd = spawn('/usr/sbin/sshd', ['-D', '-E', '/var/log/sshd.log'],{
-            stdio: ['ignore', 'pipe', 'pipe']
+            stdio: ['ignore', 'pipe', 'pipe'],
+            signal: ac.signal
         })
 
         sshd.stdout.on('data', (rawData) => {
@@ -829,7 +864,8 @@ const planRunDef = {
         })
 
         const tail = spawn('tail', ['-q', '-n', '+1', '-F', '/var/log/sshd.log'],{
-            stdio: ['ignore', 'pipe', 'pipe']
+            stdio: ['ignore', 'pipe', 'pipe'],
+            signal: ac.signal
         })
 
         tail.stdout.on('data', (data) => {
@@ -879,7 +915,8 @@ const planRunDef = {
     },
     async startAndMonitorNfsChannel() {
         const rpcbind = spawn('rpcbind', ['-w'], {
-            stdio: ['ignore', 'pipe', 'pipe']
+            stdio: ['ignore', 'pipe', 'pipe'],
+            signal: ac.signal
         })
 
         rpcbind.stdout.on('data', (rawData) => {
@@ -897,7 +934,8 @@ const planRunDef = {
         await once(rpcbind, 'exit')
 
         const rpcinfo = spawn('rpcinfo', {
-            stdio: ['ignore', 'pipe', 'pipe']
+            stdio: ['ignore', 'pipe', 'pipe'],
+            signal: ac.signal
         })
 
         rpcinfo.stdout.on('data', (rawData) => {
@@ -913,7 +951,8 @@ const planRunDef = {
         })
 
         const rpcnfsd = spawn('rpc.nfsd', ['--debug', '8', '--no-udp', '-U'], {
-            stdio: ['ignore', 'pipe', 'pipe']
+            stdio: ['ignore', 'pipe', 'pipe'],
+            signal: ac.signal
         })
 
         rpcnfsd.stdout.on('data', (rawData) => {
@@ -929,7 +968,8 @@ const planRunDef = {
         })
 
         const exportfs = spawn('exportfs', ['-rv'], {
-            stdio: ['ignore', 'pipe', 'pipe']
+            stdio: ['ignore', 'pipe', 'pipe'],
+            signal: ac.signal
         })
 
         exportfs.stdout.on('data', (rawData) => {
@@ -945,7 +985,8 @@ const planRunDef = {
         })
 
         const rpcmountd = spawn('rpc.mountd', ['--debug', 'all', '--no-udp', '--no-nfs-version', '2', '-F'], {
-            stdio: ['ignore', 'pipe', 'pipe']
+            stdio: ['ignore', 'pipe', 'pipe'],
+            signal: ac.signal
         })
 
         rpcmountd.stdout.on('data', (rawData) => {
@@ -969,7 +1010,16 @@ async function runPlan(plan: PlanItem[]) {
         // @ts-ignore
         await planRunDef[planItem.action](planItem)
     }
+    state.channels.initialized = true
 }
 
 const plan = computePlan(config)
+
 await runPlan(plan)
+
+writeFileSync(stateFilePath, JSON.stringify(state))
+
+process.on('SIGTERM', () => {
+    console.log('SIGTERM')
+    ac.abort()
+})
